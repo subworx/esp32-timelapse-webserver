@@ -25,6 +25,7 @@ Change the values near the top of the file to match your requirements. All of th
 
 ## Other settings 
 - `myTimezone` - Check https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv, find your region and paste the appropriate value.
+- `CAM120DEG` - set to true to automatically enable aec2, vflip and hmirror. 
 - various camera values - Some is self-explanatory, some can be found in the 
 [ESP32 sources](https://github.com/espressif/esp32-camera/blob/master/driver/esp_camera.c), among other places.
 - `period` - Delay between pictures. `period=1000;` means one picture every second.

@@ -1,3 +1,10 @@
+#1.50
+- 120 degree cam settings (the image is rotated 180° on MY 120° cam vs MY "stock" cam)
+- added last picture taken as `/latest.jpg`
+- disabled lots of debug output
+- updated style, cleaned up pages.h
+- added "format" function back in
+
 # 1.40
 - fix save/load/reset cam config
 - remove camconfig.ini when rebooting due to cam failure

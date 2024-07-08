@@ -6,8 +6,11 @@ crapped together from:
  - https://github.com/stooged/ESP32-Server-900u/
 
 TODOs:
-- cam config preview
-- webcam stream?
+- Cam config preview
+- Webcam stream?
+
+KNOWN ISSUES:
+- File manager crashes when >~150 files on MicroSD
 
 Further instructions -> README.md
 Changelog -> CHANGELOG.md
