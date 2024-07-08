@@ -10,13 +10,24 @@ This project:
 - saves the picture to SD
 
 # Settings:
-Change the following values near the top of the file to match your requirements:
+Change the values near the top of the file to match your requirements. All of these settings can be changed through the GUI later:
 
-`ssid`, `password` - match these to your local WiFi Access Point (ssid) and password.
+## Access Point settings
+- `startAP` - Start in Access Point mode
+- `AP_SSID` - Access Point name
+- `AP_PASS` - Access Point password
+- `Server_IP` and `Subnet_Mask` - Change if you need to
 
-`myTimezone` - check https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv, find your region and paste the appropriate value.
+## Wireless client settings
+- `connectWifi` - Connect to existing wireless network
+-  `WIFI_SSID`, `WIFI_PASS` - Replace with your wireless network name and password
+-  `WIFI_HOSTNAME` - How the ESP32 will be named on the network
 
-Change the last uncommented `delay()` value at the end of the file to adjust the picture interval. delay(1000) = 1 second.
+## Other settings 
+- `myTimezone` - Check https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv, find your region and paste the appropriate value.
+- various camera values - Some is self-explanatory, some can be found in the 
+[ESP32 sources](https://github.com/espressif/esp32-camera/blob/master/driver/esp_camera.c), among other places.
+- `period` - Delay between pictures. `period=1000;` means one picture every second.
 
 # Requirements
 Required Arduino IDE libraries:
@@ -43,3 +54,4 @@ In Arduino IDE, make the following settings in the `Tools` menu:
 - `Flash Frequency`: 80 MHz
 - `Flash Mode`: QIO
 - `Partition Scheme`: Huge APP (3MB No OTA/1MB SPIFFS)
+
