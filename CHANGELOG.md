@@ -1,3 +1,7 @@
+# 1.30
+- separate Cam and ESP config
+- update Cam config without reboot
+
 # 1.20
 - more work on config for server and cam
 - filesystem (SD) fixes

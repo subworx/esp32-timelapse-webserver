@@ -1,17 +1,27 @@
 /*
 
-ESP32 CAM control - timelapse with simple web interface @ https://github.com/subworx/esp32-timelapse-webserver/
+ESP32 CAM control - timelapse with simple web interface
 crapped together from:
  - https://www.instructables.com/ESP32-CAM-Take-Photo-and-Save-to-MicroSD-Card-With/
  - https://github.com/stooged/ESP32-Server-900u/
 
 TODOs:
-- cam config in extra file, extra page for cam stuff
-  - with preview?
+- fix save/reset cam config - form variables?
+- cam config preview
 - webcam stream?
 
-Further instructions -> README.md
-Changelog -> CHANGELOG.md
+DONE:
++ copy jailbreak esp stuff - file management, info
++ take picture every 3 minutes
++ fixed config read/write for server + cam
++ separated camera/system config
++ update camera config without reboot
+
+NOTES:
+To edit the html stuff (pages.h), copy the numbers and paste into https://gchq.github.io/CyberChef/ using
+From Decimal (Comma) -> Gunzip to create HTML, then Gzip (with filename) -> To Decimal (comma), then paste
+back into pages.h
+
 */
 
 #include "esp_camera.h"
@@ -47,7 +57,7 @@ String WIFI_HOSTNAME = "esp32-cam";
 int WEB_PORT = 80;
 
 // Displayed firmware version
-String firmwareVer = "1.20";
+String firmwareVer = "1.30";
 
 // REPLACE WITH YOUR TIMEZONE STRING: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 String myTimezone ="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -221,12 +231,11 @@ void handleDelete(AsyncWebServerRequest *request) {
     request->redirect("/fileman.html");
     return;
   }
-  if (SD_MMC.exists("/" + path) && path != "/" && !path.equals("config.ini")) {
+  if (SD_MMC.exists("/" + path) && path != "/" && !path.equals("config.ini") && !path.equals("camconfig.ini")) {
     SD_MMC.remove("/" + path);
   }
   request->redirect("/fileman.html");
 }
-
 
 
 void handleFileMan(AsyncWebServerRequest *request) {
@@ -243,7 +252,7 @@ void handleFileMan(AsyncWebServerRequest *request) {
       break;
     }
     String fname = String(file.name());
-    if (fname.length() > 0 && !fname.equals("config.ini") && !file.isDirectory()) {
+    if (fname.length() > 0 && !fname.equals("config.ini") && !fname.equals("camconfig.ini") && !file.isDirectory()) {
       fileCount++;
       fname.replace("|", "%7C");
       fname.replace("\"", "%22");
@@ -283,7 +292,7 @@ void handleDlFiles(AsyncWebServerRequest *request) {
       break;
     }
     String fname = String(file.name());
-    if (fname.length() > 0 && !fname.equals("config.ini") && !file.isDirectory()) {
+    if (fname.length() > 0 && !fname.equals("config.ini") && !fname.equals("camconfig.ini") && !file.isDirectory()) {
       fileCount++;
       fname.replace("\"", "%22");
       output += "\"" + fname + "\",";
@@ -309,7 +318,6 @@ void handleDlFiles(AsyncWebServerRequest *request) {
 }
 
 
-// TODO: Add CAM values etc
 void handleConfig(AsyncWebServerRequest *request) {
   if (request->hasParam("ap_ssid", true) && request->hasParam("ap_pass", true) && request->hasParam("web_ip", true) && 
   request->hasParam("web_port", true) && request->hasParam("subnet", true) && request->hasParam("wifi_ssid", true) && 
@@ -332,59 +340,6 @@ void handleConfig(AsyncWebServerRequest *request) {
     if (request->hasParam("useap", true)) { tmpua = "true"; }
     if (request->hasParam("usewifi", true)) { tmpcw = "true"; }
     if (tmpua.equals("false") && tmpcw.equals("false")) { tmpua = "true"; }
-    // new cam values
-    String tmpMytimezone = "CET-1CEST,M3.5.0,M10.5.0/3";
-    if (request->hasParam("mytimezone", true)) { tmpMytimezone = request->getParam("mytimezone", true)->value(); }
-    String tmpBrightness = "0";
-    if (request->hasParam("brightness", true)) { tmpBrightness = request->getParam("brightness", true)->value(); }
-    String tmpContrast = "0";
-    if (request->hasParam("contrast", true)) { tmpContrast = request->getParam("contrast", true)->value(); }
-    String tmpSaturation = "0";
-    if (request->hasParam("saturation", true)) { tmpSaturation = request->getParam("saturation", true)->value(); }
-    String tmpSharpness = "0";
-    if (request->hasParam("sharpness", true)) { tmpSharpness = request->getParam("sharpness", true)->value(); }
-    String tmpDenoise = "1";
-    if (request->hasParam("denoise", true)) { tmpDenoise = request->getParam("denoise", true)->value(); }
-    String tmpSpecial_effect = "0";
-    if (request->hasParam("special_effect", true)) { tmpSpecial_effect = request->getParam("special_effect", true)->value(); }
-    String tmpWhitebal = "1";
-    if (request->hasParam("whitebal", true)) { tmpWhitebal = request->getParam("whitebal", true)->value(); }
-    String tmpAwb_gain = "1";
-    if (request->hasParam("awb_gain", true)) { tmpAwb_gain = request->getParam("awb_gain", true)->value(); }
-    String tmpWb_mode = "0";
-    if (request->hasParam("wb_mode", true)) { tmpWb_mode = request->getParam("wb_mode", true)->value(); }
-    String tmpExposure_ctrl = "1";
-    if (request->hasParam("exposure_ctrl", true)) { tmpExposure_ctrl = request->getParam("exposure_ctrl", true)->value(); }
-    String tmpAec2 = "0";
-    if (request->hasParam("aec2", true)) { tmpAec2 = request->getParam("aec2", true)->value(); }
-     String tmpAe_level = "0";
-    if (request->hasParam("ae_level", true)) { tmpAe_level = request->getParam("ae_level", true)->value(); }
-    String tmpAec_value = "300";
-    if (request->hasParam("aec_value", true)) { tmpAec_value = request->getParam("aec_value", true)->value(); }
-    String tmpGain_ctrl = "1";
-    if (request->hasParam("gain_ctrl", true)) { tmpGain_ctrl = request->getParam("gain_ctrl", true)->value(); }
-    String tmpAgc_gain = "0";
-    if (request->hasParam("agc_gain", true)) { tmpAgc_gain = request->getParam("agc_gain", true)->value(); }
-    String tmpGainceiling = "0";
-    if (request->hasParam("gainceiling", true)) { tmpGainceiling = request->getParam("gainceiling", true)->value(); }
-    String tmpBpc = "0";
-    if (request->hasParam("bpc", true)) { tmpBpc = request->getParam("bpc", true)->value(); }
-    String tmpWpc = "1";
-    if (request->hasParam("wpc", true)) { tmpWpc = request->getParam("wpc", true)->value(); }
-    String tmpRaw_gma = "1";
-    if (request->hasParam("raw_gma", true)) { tmpRaw_gma = request->getParam("raw_gma", true)->value(); }
-    String tmpLenc = "1";
-    if (request->hasParam("lenc", true)) { tmpLenc = request->getParam("lenc", true)->value(); }
-    String tmpHmirror = "0";
-    if (request->hasParam("hmirror", true)) { tmpHmirror = request->getParam("hmirror", true)->value(); }
-    String tmpVflip = "0";
-    if (request->hasParam("vflip", true)) { tmpVflip = request->getParam("vflip", true)->value(); }
-    String tmpDcw = "1";
-    if (request->hasParam("dcw", true)) { tmpDcw = request->getParam("dcw", true)->value(); }
-    String tmpColorbar = "0";
-    if (request->hasParam("colorbar", true)) { tmpColorbar = request->getParam("colorbar", true)->value(); }
-    String tmpPeriod = "180000";
-    if (request->hasParam("period", true)) { tmpPeriod = request->getParam("period", true)->value(); }
     String iniContent = "\r\nAP_SSID=" + AP_SSID;
     iniContent += "\r\nAP_PASS=" + AP_PASS;
     iniContent += "\r\nWEBSERVER_IP=" + tmpip;
@@ -395,7 +350,95 @@ void handleConfig(AsyncWebServerRequest *request) {
     iniContent += "\r\nWIFI_HOST=" + WIFI_HOSTNAME;
     iniContent += "\r\nUSEAP=" + tmpua;
     iniContent += "\r\nCONWIFI=" + tmpcw;
-    iniContent += "\r\nMYTIMEZONE=" + tmpMytimezone;
+    iniContent += "\r\n";
+    //Serial.println(iniContent);
+    File iniFile = SD_MMC.open("/config.ini", "w");
+    if (iniFile) {
+      //Serial.println("writing ini");
+      iniFile.print(iniContent);
+      iniFile.close();
+    }
+    String htmStr = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\">";
+    htmStr += "<style type=\"text/css\">#loader {z-index: 1;width: 50px;height: 50px;margin: 0 0 0 0;border: 6px solid #f3f3f3;";
+    htmStr += "border-radius: 50%;border-top: 6px solid #3498db;width: 50px;height: 50px;-webkit-animation: spin 2s linear infinite;";
+    htmStr += "animation: spin 2s linear infinite; } @-webkit-keyframes spin {0%{-webkit-transform: rotate(0deg);}";
+    htmStr += "100%{-webkit-transform: rotate(360deg);}}@keyframes spin{0%{ transform: rotate(0deg);}100%{transform: rotate(360deg);}}";
+    htmStr += "body {background-color: #1451AE; color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 0 0.0; padding: 0.4em 0.4em 0.4em 0.6em;}";
+    htmStr += " #msgfmt {font-size: 16px; font-weight: normal;}#status {font-size: 16px; font-weight: normal;}</style></head><center><br><br><br><br><br>";
+    htmStr += "<p id=\"status\"><div id='loader'></div><br>Config saved<br>Rebooting</p></center></html>";
+    request->send(200, "text/html", htmStr);
+    delay(1000);
+    ESP.restart();
+  } else {
+    //Serial.println(" broken/missing/whatever parameters for config");
+    request->redirect("/config.html");
+  }
+}
+
+void handleCamConfig(AsyncWebServerRequest *request) {
+  if (request->hasParam("mytimezone", true) && request->hasParam("brightness", true) && request->hasParam("contrast", true) && 
+  request->hasParam("saturation", true) && request->hasParam("sharpness", true) && request->hasParam("denoise", true) && 
+  request->hasParam("special_effect", true) && request->hasParam("whitebal", true) && request->hasParam("awb_gain", true) &&
+  request->hasParam("wb_mode", true) && request->hasParam("exposure_ctrl", true) && request->hasParam("aec2", true) &&
+  request->hasParam("ae_level", true) && request->hasParam("aec_value", true) && request->hasParam("gain_ctrl", true) &&
+  request->hasParam("agc_gain", true) && request->hasParam("gainceiling", true) && request->hasParam("bpc", true) &&
+  request->hasParam("wpc", true) && request->hasParam("raw_gma", true) && request->hasParam("lenc", true) &&
+  request->hasParam("hmirror", true) && request->hasParam("vflip", true) && request->hasParam("dcw", true) &&
+  request->hasParam("colorbar", true) && request->hasParam("period", true)) {
+    //Serial.println("-- processing config --");
+    String tmpMytimezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    if (request->hasParam("mytimezone", true)) { tmpMytimezone = request->getParam("mytimezone", true)->value(); myTimezone = tmpMytimezone;}
+    String tmpBrightness = "0";
+    if (request->hasParam("brightness", true)) { tmpBrightness = request->getParam("brightness", true)->value(); brightness = tmpBrightness.toInt();}
+    String tmpContrast = "0";
+    if (request->hasParam("contrast", true)) { tmpContrast = request->getParam("contrast", true)->value(); contrast = tmpContrast.toInt();}
+    String tmpSaturation = "0";
+    if (request->hasParam("saturation", true)) { tmpSaturation = request->getParam("saturation", true)->value(); saturation = tmpSaturation.toInt();}
+    String tmpSharpness = "0";
+    if (request->hasParam("sharpness", true)) { tmpSharpness = request->getParam("sharpness", true)->value(); sharpness = tmpSharpness.toInt();}
+    String tmpDenoise = "1";
+    if (request->hasParam("denoise", true)) { tmpDenoise = request->getParam("denoise", true)->value(); denoise = tmpDenoise.toInt();}
+    String tmpSpecial_effect = "0";
+    if (request->hasParam("special_effect", true)) { tmpSpecial_effect = request->getParam("special_effect", true)->value(); special_effect = tmpSpecial_effect.toInt();}
+    String tmpWhitebal = "1";
+    if (request->hasParam("whitebal", true)) { tmpWhitebal = request->getParam("whitebal", true)->value(); whitebal = tmpWhitebal.toInt();}
+    String tmpAwb_gain = "1";
+    if (request->hasParam("awb_gain", true)) { tmpAwb_gain = request->getParam("awb_gain", true)->value(); awb_gain = tmpAwb_gain.toInt();}
+    String tmpWb_mode = "0";
+    if (request->hasParam("wb_mode", true)) { tmpWb_mode = request->getParam("wb_mode", true)->value(); wb_mode = tmpWb_mode.toInt();}
+    String tmpExposure_ctrl = "1";
+    if (request->hasParam("exposure_ctrl", true)) { tmpExposure_ctrl = request->getParam("exposure_ctrl", true)->value(); exposure_ctrl = tmpExposure_ctrl.toInt();}
+    String tmpAec2 = "0";
+    if (request->hasParam("aec2", true)) { tmpAec2 = request->getParam("aec2", true)->value(); aec2 = tmpAec2.toInt();}
+     String tmpAe_level = "0";
+    if (request->hasParam("ae_level", true)) { tmpAe_level = request->getParam("ae_level", true)->value(); ae_level = tmpAe_level.toInt();}
+    String tmpAec_value = "300";
+    if (request->hasParam("aec_value", true)) { tmpAec_value = request->getParam("aec_value", true)->value(); aec_value = tmpAec_value.toInt();}
+    String tmpGain_ctrl = "1";
+    if (request->hasParam("gain_ctrl", true)) { tmpGain_ctrl = request->getParam("gain_ctrl", true)->value(); gain_ctrl = tmpGain_ctrl.toInt();}
+    String tmpAgc_gain = "0";
+    if (request->hasParam("agc_gain", true)) { tmpAgc_gain = request->getParam("agc_gain", true)->value(); agc_gain = tmpAgc_gain.toInt();}
+    String tmpGainceiling = "0";
+    if (request->hasParam("gainceiling", true)) { tmpGainceiling = request->getParam("gainceiling", true)->value(); gainceiling = tmpGainceiling.toInt();}
+    String tmpBpc = "0";
+    if (request->hasParam("bpc", true)) { tmpBpc = request->getParam("bpc", true)->value(); bpc = tmpBpc.toInt();}
+    String tmpWpc = "1";
+    if (request->hasParam("wpc", true)) { tmpWpc = request->getParam("wpc", true)->value(); wpc = tmpWpc.toInt();}
+    String tmpRaw_gma = "1";
+    if (request->hasParam("raw_gma", true)) { tmpRaw_gma = request->getParam("raw_gma", true)->value(); raw_gma = tmpRaw_gma.toInt();}
+    String tmpLenc = "1";
+    if (request->hasParam("lenc", true)) { tmpLenc = request->getParam("lenc", true)->value(); lenc = tmpLenc.toInt();}
+    String tmpHmirror = "0";
+    if (request->hasParam("hmirror", true)) { tmpHmirror = request->getParam("hmirror", true)->value(); hmirror = tmpHmirror.toInt();}
+    String tmpVflip = "0";
+    if (request->hasParam("vflip", true)) { tmpVflip = request->getParam("vflip", true)->value(); vflip = tmpVflip.toInt();}
+    String tmpDcw = "1";
+    if (request->hasParam("dcw", true)) { tmpDcw = request->getParam("dcw", true)->value(); dcw = tmpDcw.toInt();}
+    String tmpColorbar = "0";
+    if (request->hasParam("colorbar", true)) { tmpColorbar = request->getParam("colorbar", true)->value(); colorbar = tmpColorbar.toInt();}
+    String tmpPeriod = "180000";
+    if (request->hasParam("period", true)) { tmpPeriod = request->getParam("period", true)->value(); period = tmpPeriod.toInt();}
+    String iniContent = "MYTIMEZONE=" + tmpMytimezone;
     iniContent += "\r\nBRIGHTNESS=" + tmpBrightness;
     iniContent += "\r\nCONTRAST=" + tmpContrast;
     iniContent += "\r\nSATURATION=" + tmpSaturation;
@@ -423,32 +466,77 @@ void handleConfig(AsyncWebServerRequest *request) {
     iniContent += "\r\nPERIOD=" + tmpPeriod;
     iniContent += "\r\n";
     //Serial.println(iniContent);
-    //TODO Fix to work with the other FS module, but to SD
-    File iniFile = SD_MMC.open("/config.ini", "w");
+    File iniFile = SD_MMC.open("/camconfig.ini", "w");
     if (iniFile) {
-      //Serial.println("writing ini");
-      //iniFile.print("\r\nAP_SSID=" + AP_SSID + "\r\nAP_PASS=" + AP_PASS + "\r\nWEBSERVER_IP=" + tmpip + "\r\nWEBSERVER_PORT=" + tmpwport + "\r\nSUBNET_MASK=" + 
-      //tmpsubn + "\r\nWIFI_SSID=" + WIFI_SSID + "\r\nWIFI_PASS=" + WIFI_PASS + "\r\nWIFI_HOST=" + WIFI_HOSTNAME + "\r\nUSEAP=" + tmpua + "\r\nCONWIFI=" + tmpcw +
-      // "\r\nMYTIMEZONE=" + tmpMytimezone + "\r\nBRIGHTNESS=" + tmpBrightness + "\r\n");
       iniFile.print(iniContent);
       iniFile.close();
     }
-    String htmStr = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\">";
+    //String htmStr = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\">";
+    String htmStr = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/camconfig.html\">";
     htmStr += "<style type=\"text/css\">#loader {z-index: 1;width: 50px;height: 50px;margin: 0 0 0 0;border: 6px solid #f3f3f3;";
     htmStr += "border-radius: 50%;border-top: 6px solid #3498db;width: 50px;height: 50px;-webkit-animation: spin 2s linear infinite;";
     htmStr += "animation: spin 2s linear infinite; } @-webkit-keyframes spin {0%{-webkit-transform: rotate(0deg);}";
     htmStr += "100%{-webkit-transform: rotate(360deg);}}@keyframes spin{0%{ transform: rotate(0deg);}100%{transform: rotate(360deg);}}";
     htmStr += "body {background-color: #1451AE; color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 0 0.0; padding: 0.4em 0.4em 0.4em 0.6em;}";
     htmStr += " #msgfmt {font-size: 16px; font-weight: normal;}#status {font-size: 16px; font-weight: normal;}</style></head><center><br><br><br><br><br>";
-    htmStr += "<p id=\"status\"><div id='loader'></div><br>Config saved<br>Rebooting</p></center></html>";
+    htmStr += "<p id=\"status\"><div id='loader'></div><br>Cam config saved<br>Reloading</p></center></html>";
     request->send(200, "text/html", htmStr);
     delay(1000);
-    ESP.restart();
+    //ESP.restart();
+    Serial.println("--- setting new camera settings ---");
+    sensor_t * s = esp_camera_sensor_get();
+    //Serial.println("set brightness: " + String(brightness));
+    s->set_brightness(s, brightness);     // -2 to 2
+    //Serial.println("set contrast: " + String(contrast));
+    s->set_contrast(s, contrast);       // -2 to 2
+    //Serial.println("set saturation: " + String(saturation));
+    s->set_saturation(s, saturation);     // -2 to 2
+    //Serial.println("set sharpness: " + String(sharpness));
+    s->set_sharpness(s, sharpness);      // -2 to 2
+    //Serial.println("set denoise: " + String(denoise));
+    s->set_denoise(s, denoise);        // 0 = disable, 1 = enable
+    //Serial.println("set special_effect: " + String(special_effect));
+    s->set_special_effect(s, special_effect); // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+    //Serial.println("set whitebal: " + String(whitebal));
+    s->set_whitebal(s, whitebal);       // 0 = disable , 1 = enable
+    //Serial.println("set awb_gain: " + String(awb_gain));
+    s->set_awb_gain(s, awb_gain);       // 0 = disable , 1 = enable
+    //Serial.println("set wb_mode: " + String(wb_mode));
+    s->set_wb_mode(s, wb_mode);        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+    //Serial.println("set exposure_ctrl: " + String(exposure_ctrl));
+    s->set_exposure_ctrl(s, exposure_ctrl);  // 0 = disable , 1 = enable
+    //Serial.println("set aec2: " + String(aec2));
+    s->set_aec2(s, aec2);           // 0 = disable , 1 = enable
+    //Serial.println("set aec_value: " + String(aec_value));
+    s->set_aec_value(s, aec_value);    // 0 to 1200
+    //Serial.println("set gain_ctrl: " + String(gain_ctrl));
+    s->set_gain_ctrl(s, gain_ctrl);      // 0 = disable , 1 = enable
+    //Serial.println("set agc_gain: " + String(agc_gain));
+    s->set_agc_gain(s, agc_gain);       // 0 to 30
+    //Serial.println("set gainceiling: " + String(gainceiling));
+    s->set_gainceiling(s, gainceiling_t(gainceiling));  // 0 to 6
+    //Serial.println("set bpc: " + String(bpc));
+    s->set_bpc(s, bpc);            // 0 = disable , 1 = enable
+    //Serial.println("set wpc: " + String(wpc));
+    s->set_wpc(s, wpc);            // 0 = disable , 1 = enable
+    //Serial.println("set raw_gma: " + String(raw_gma));
+    s->set_raw_gma(s, raw_gma);        // 0 = disable , 1 = enable
+    //Serial.println("set lenc: " + String(lenc));
+    s->set_lenc(s, lenc);           // 0 = disable , 1 = enable
+    //Serial.println("set hmirror: " + String(hmirror));
+    s->set_hmirror(s, hmirror);        // 0 = disable , 1 = enable
+    //Serial.println("set vflip: " + String(vflip));
+    s->set_vflip(s, vflip);          // 0 = disable , 1 = enable
+    //Serial.println("set dcw: " + String(dcw));
+    s->set_dcw(s, dcw);            // 0 = disable , 1 = enable
+    //Serial.println("set colorbar: " + String(colorbar));
+    s->set_colorbar(s, colorbar);       // 0 = disable , 1 = enable
   } else {
     //Serial.println(" broken/missing/whatever parameters for config");
-    request->redirect("/config.html");
+    request->redirect("/camconfig.html");
   }
 }
+
 
 void handleReboot(AsyncWebServerRequest *request) {
   Serial.print("Rebooting ESP");
@@ -487,6 +575,20 @@ void handleConfigHtml(AsyncWebServerRequest *request) {
   htmStr += "<tr><td>WiFi Password:</td><td><input name=\"wifi_pass\" value=\"********\"></td></tr>";
   htmStr += "<tr><td>WiFi Hostname:</td><td><input name=\"wifi_host\" value=\"" + WIFI_HOSTNAME + "\"></td></tr>";
   htmStr += "<tr><td>Connect WiFi:</td><td><input type=\"checkbox\" name=\"usewifi\" " + tmpCw + "></td></tr>";
+  htmStr += "</table><br><input id=\"savecfg\" type=\"submit\" value=\"Save Config\"></center></form></body></html>";
+  request->send(200, "text/html", htmStr);
+}
+
+void handleCamConfigHtml(AsyncWebServerRequest *request) {
+  String htmStr = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Config Editor</title>";
+  htmStr += "<style type=\"text/css\">body {background-color: #1451AE; color: #ffffff; font-size: 14px;font-weight: bold;margin: 0 0 0 0.0;";
+  htmStr += "padding: 0.4em 0.4em 0.4em 0.6em;}input[type=\"submit\"]:hover ";
+  htmStr += "{background: #ffffff;color: green;}input[type=\"submit\"]:active{outline-color: green;color: green;background: #ffffff; }";
+  htmStr += "table {font-family: arial, sans-serif;border-collapse: collapse;}td {border: 1px solid #dddddd;text-align: left;padding: 8px;}";
+  htmStr += "th {border: 1px solid #dddddd; background-color:gray;text-align: center;padding: 8px;}";
+  htmStr += "a:link {color: #ffffff;}a:visited {color: #ffffff;}a:hover {color: #ffffff;}a:active {color: #ffffff;}";
+  htmStr += "</style></head><body>";
+  htmStr += "<form action=\"/camconfig.html\" method=\"post\"><center><table>";
   htmStr += "<tr><th colspan=\"2\"><center>Time Zone</th></tr>";
   htmStr += "<tr><td><a href=\"https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv\" target=\"_blank\">";
   htmStr += "My Timezone</a>:</td><td><input name=\"mytimezone\" value=\"" + String(myTimezone) + "\"></td></tr>";
@@ -519,7 +621,7 @@ void handleConfigHtml(AsyncWebServerRequest *request) {
   htmStr += "</select></td></tr>";
   htmStr += "<tr><td>exposure_ctrl (0 / 1, Default 1):</td><td><input name=\"exposure_ctrl\" value=\"" + String(exposure_ctrl) + "\"></td></tr>";
   htmStr += "<tr><td>aec2 (0 / 1, Default 0):</td><td><input name=\"aec2\" value=\"" + String(aec2) + "\"></td></tr>";
-  htmStr += "<tr><td>ae_level (-2 to 2, Default 1):</td><td><input name=\"ae_level\" value=\"" + String(ae_level) + "\"></td></tr>";
+  htmStr += "<tr><td>ae_level (-2 to 2, Default 0):</td><td><input name=\"ae_level\" value=\"" + String(ae_level) + "\"></td></tr>";
   htmStr += "<tr><td>aec_value (0-1200, Default 300):</td><td><input name=\"aec_value\" value=\"" + String(aec_value) + "\"></td></tr>";
   htmStr += "<tr><td>gain_ctrl (0 / 1, Default 1):</td><td><input name=\"gain_ctrl\" value=\"" + String(gain_ctrl) + "\"></td></tr>";
   htmStr += "<tr><td>agc_gain (0-30, Default 0):</td><td><input name=\"agc_gain\" value=\"" + String(agc_gain) + "\"></td></tr>";
@@ -532,7 +634,7 @@ void handleConfigHtml(AsyncWebServerRequest *request) {
   htmStr += "<tr><td>vflip (0 / 1, Default 0):</td><td><input name=\"vflip\" value=\"" + String(vflip) + "\"></td></tr>";
   htmStr += "<tr><td>dcw (0 / 1, Default 1):</td><td><input name=\"dcw\" value=\"" + String(dcw) + "\"></td></tr>";
   htmStr += "<tr><td>colorbar (0 / 1, Default 0):</td><td><input name=\"colorbar\" value=\"" + String(colorbar) + "\"></td></tr>";
-  htmStr += "</table><br><input id=\"savecfg\" type=\"submit\" value=\"Save Config\"></center></form></body></html>";
+  htmStr += "</table><br><input name=\"savecfg\" id=\"savecfg\" type=\"submit\" value=\"Save Config\"></center></form></body></html>";
   request->send(200, "text/html", htmStr);
 }
 
@@ -548,6 +650,7 @@ void handleFileUpload(AsyncWebServerRequest *request, String filename, size_t in
       filename = "/" + filename;
     }
     if (filename.equals("/config.ini")) { return; }
+    if (filename.equals("/camconfig.ini")) { return; }
     //HWSerial.printf("Upload Start: %s\n", filename.c_str());
     upFile = SD_MMC.open(filename, "w");
   }
@@ -647,11 +750,10 @@ void handleInfo(AsyncWebServerRequest *request) {
   output += "Sketch hash: " + ESP.getSketchMD5() + "<br>";
   output += "Sketch size: " + formatBytes(ESP.getSketchSize()) + "<br>";
   output += "Free space available: " + formatBytes(ESP.getFreeSketchSpace() - ESP.getSketchSize()) + "<br><hr>";
-    output += "</html>";
+  output += "</html>";
   request->send(200, "text/html", output);
 }
 
-//TODO fix values, add cam
 void writeConfig() {
   File iniFile = SD_MMC.open("/config.ini", "w");
   if (iniFile) {
@@ -660,18 +762,6 @@ void writeConfig() {
     String tmpslp = "false";
     if (startAP) { tmpua = "true"; }
     if (connectWifi) { tmpcw = "true"; }
-    /*
-    iniFile.print("\r\nAP_SSID=" + AP_SSID + 
-    "\r\nAP_PASS=" + AP_PASS + 
-    "\r\nWEBSERVER_IP=" + Server_IP.toString() + 
-    "\r\nWEBSERVER_PORT=" + String(WEB_PORT) + 
-    "\r\nSUBNET_MASK=" + Subnet_Mask.toString() + 
-    "\r\nWIFI_SSID=" + WIFI_SSID + 
-    "\r\nWIFI_PASS=" + WIFI_PASS + 
-    "\r\nWIFI_HOST=" + WIFI_HOSTNAME + 
-    "\r\nUSEAP=" + tmpua + 
-    "\r\nCONWIFI=" + tmpcw + 
-    \r\n");*/
     String iniContent = "\r\nAP_SSID=" + AP_SSID;
     iniContent += "\r\nAP_PASS=" + AP_PASS;
     iniContent += "\r\nWEBSERVER_IP=" + Server_IP.toString();
@@ -682,33 +772,46 @@ void writeConfig() {
     iniContent += "\r\nWIFI_HOST=" + WIFI_HOSTNAME;
     iniContent += "\r\nUSEAP=" + tmpua;
     iniContent += "\r\nCONWIFI=" + tmpcw;
-    iniContent += "\r\nMYTIMEZONE=" + myTimezone;
-    iniContent += "\r\nBRIGHTNESS=" + brightness;
-    iniContent += "\r\nCONTRAST=" + contrast;
-    iniContent += "\r\nSATURATION=" + saturation;
-    iniContent += "\r\nSHARPNESS=" + sharpness;
-    iniContent += "\r\nDENOISE=" + denoise;
-    iniContent += "\r\nSPECIAL_EFFECT=" + special_effect;
-    iniContent += "\r\nWHITEBAL=" + whitebal;
-    iniContent += "\r\nAWB_GAIN=" + awb_gain;
-    iniContent += "\r\nWB_MODE=" + wb_mode;
-    iniContent += "\r\nEXPOSURE_CTRL=" + exposure_ctrl;
-    iniContent += "\r\nAEC2=" + aec2;
-    iniContent += "\r\nAE_LEVEL=" + ae_level;
-    iniContent += "\r\nAEC_VALUE=" + aec_value;
-    iniContent += "\r\nGAIN_CTRL=" + gain_ctrl;
-    iniContent += "\r\nAGC_GAIN=" + agc_gain;
-    iniContent += "\r\nGAINCEILING=" + gainceiling;
-    iniContent += "\r\nBPC=" + bpc;
-    iniContent += "\r\nWPC=" + wpc;
-    iniContent += "\r\nRAW_GMA=" + raw_gma;
-    iniContent += "\r\nLENC=" + lenc;
-    iniContent += "\r\nHMIRROR=" + hmirror;
-    iniContent += "\r\nVFLIP=" + vflip;
-    iniContent += "\r\nDCW=" + dcw;
-    iniContent += "\r\nCOLORBAR=" + colorbar;
-    iniContent += "\r\nPERIOD=" + period;
+    iniContent += "\r\n";
+    iniFile.print(iniContent);
     iniFile.close();
+  }
+}
+
+void writeCamConfig() {
+  File camIniFile = SD_MMC.open("/camconfig.ini", "w");
+  if (camIniFile) {
+    Serial.println("camconfig.ini opened for writeCamConfig");
+    String camIniContent = "\r\nMYTIMEZONE=" + myTimezone;
+    camIniContent += "\r\nBRIGHTNESS=" + String(brightness);
+    camIniContent += "\r\nCONTRAST=" + String(contrast);
+    camIniContent += "\r\nSATURATION=" + String(saturation);
+    camIniContent += "\r\nSHARPNESS=" + String(sharpness);
+    camIniContent += "\r\nDENOISE=" + String(denoise);
+    camIniContent += "\r\nSPECIAL_EFFECT=" + String(special_effect);
+    camIniContent += "\r\nWHITEBAL=" + String(whitebal);
+    camIniContent += "\r\nAWB_GAIN=" + String(awb_gain);
+    camIniContent += "\r\nWB_MODE=" + String(wb_mode);
+    camIniContent += "\r\nEXPOSURE_CTRL=" + String(exposure_ctrl);
+    camIniContent += "\r\nAEC2=" + String(aec2);
+    camIniContent += "\r\nAE_LEVEL=" + String(ae_level);
+    camIniContent += "\r\nAEC_VALUE=" + String(aec_value);
+    camIniContent += "\r\nGAIN_CTRL=" + String(gain_ctrl);
+    camIniContent += "\r\nAGC_GAIN=" + String(agc_gain);
+    camIniContent += "\r\nGAINCEILING=" + String(gainceiling);
+    camIniContent += "\r\nBPC=" + String(bpc);
+    camIniContent += "\r\nWPC=" + String(wpc);
+    camIniContent += "\r\nRAW_GMA=" + String(raw_gma);
+    camIniContent += "\r\nLENC=" + String(lenc);
+    camIniContent += "\r\nHMIRROR=" + String(hmirror);
+    camIniContent += "\r\nVFLIP=" + String(vflip);
+    camIniContent += "\r\nDCW=" + String(dcw);
+    camIniContent += "\r\nCOLORBAR=" + String(colorbar);
+    camIniContent += "\r\nPERIOD=" + String(period);
+    camIniContent += "\r\n";
+    Serial.println(camIniContent);
+    camIniFile.print(camIniContent);
+    camIniFile.close();
   }
 }
 
@@ -913,7 +1016,7 @@ String getPictureFilename(){
 // Initialize the micro SD card
 void initMicroSDCard(){
   // Start Micro SD card
-  Serial.println("Starting SD Card");
+  Serial.println("Starting SD Card... ");
   if(!SD_MMC.begin()){
     Serial.println("SD Card Mount Failed");
     return;
@@ -923,6 +1026,7 @@ void initMicroSDCard(){
     Serial.println("No SD Card attached");
     return;
   }
+  Serial.println("Done");
 }
 
 
@@ -974,10 +1078,10 @@ void setup() {
   initMicroSDCard();
 
   if (SD_MMC.exists("/config.ini")) {
-    //Serial.println("ini exists");
+    //Serial.println("config.ini exists");
     File iniFile = SD_MMC.open("/config.ini", "r");
     if (iniFile) {
-      //Serial.println("--- ini found, loading ---");
+      //Serial.println("config.ini found, loading");
       String iniData;
       while (iniFile.available()) {
         char chnk = iniFile.read();
@@ -1053,7 +1157,7 @@ void setup() {
       }
       //Serial.println("CONNWIFI = " + String(connectWifi));
 
-      if (instr(iniData, "MYTIMEZONE=")) {
+      /*if (instr(iniData, "MYTIMEZONE=")) {
         String strtz = split(iniData, "MYTIMEZONE=", "\r\n");
         strtz.trim();
         myTimezone = strtz;
@@ -1235,10 +1339,213 @@ void setup() {
         period = strper.toInt();
       }
       //Serial.println("PERIOD = " + String(period));
+      */
     }
   } else {
-    //Serial.println("no ini found, start writeconfig");
+    //Serial.println("no config.ini found, start writeconfig");
     writeConfig();
+  }
+
+  if (SD_MMC.exists("/camconfig.ini")) {
+    //Serial.println("camconfig.ini exists");
+    File camIniFile = SD_MMC.open("/camconfig.ini", "r");
+    if (camIniFile) {
+      Serial.println("camconfig.ini found, loading");
+      String camIniData;
+      while (camIniFile.available()) {
+        char chnk = camIniFile.read();
+        camIniData += chnk;
+      }
+      camIniFile.close();
+
+      //Serial.println("processing ini entries:");
+
+      if (instr(camIniData, "MYTIMEZONE=")) {
+        String strtz = split(camIniData, "MYTIMEZONE=", "\r\n");
+        strtz.trim();
+        myTimezone = strtz;
+      }
+      Serial.println("MYTIMEZONE = " + myTimezone);
+
+      if (instr(camIniData, "BRIGHTNESS=")) {
+        String strbrt = split(camIniData, "BRIGHTNESS=", "\r\n");
+        strbrt.trim();
+        brightness = strbrt.toInt();
+      }
+      Serial.println("BRIGHTNESS = " + String(brightness));
+      
+      if (instr(camIniData, "CONTRAST=")) {
+        String strcon = split(camIniData, "CONTRAST=", "\r\n");
+        strcon.trim();
+        contrast = strcon.toInt();
+      }
+      Serial.println("CONTRAST = " + String(contrast));
+
+      if (instr(camIniData, "SATURATION=")) {
+        String strsat = split(camIniData, "SATURATION=", "\r\n");
+        strsat.trim();
+        saturation = strsat.toInt();
+        
+      }
+      Serial.println("SATURATION = " + String(saturation));
+
+      if (instr(camIniData, "SHARPNESS=")) {
+        String strsha = split(camIniData, "SHARPNESS=", "\r\n");
+        strsha.trim();
+        sharpness = strsha.toInt();
+      }
+      Serial.println("SHARPNESS = " + String(sharpness));
+
+      if (instr(camIniData, "DENOISE=")) {
+        String strden = split(camIniData, "DENOISE=", "\r\n");
+        strden.trim();
+        denoise = strden.toInt();
+      }
+      Serial.println("DENOISE = " + String(denoise));
+
+      if (instr(camIniData, "SPECIAL_EFFECT=")) {
+        String strsfx = split(camIniData, "SPECIAL_EFFECT=", "\r\n");
+        strsfx.trim();
+        special_effect = strsfx.toInt();        
+      }
+      Serial.println("SPECIAL_EFFECT = " + String(special_effect));
+
+      if (instr(camIniData, "WHITEBAL=")) {
+        String strwhi = split(camIniData, "WHITEBAL=", "\r\n");
+        strwhi.trim();
+        whitebal = strwhi.toInt();
+      }
+      Serial.println("WHITEBAL = " + String(whitebal));
+
+      if (instr(camIniData, "AWB_GAIN=")) {
+        String strawb = split(camIniData, "AWB_GAIN=", "\r\n");
+        strawb.trim();
+        awb_gain = strawb.toInt();
+      }
+      Serial.println("AWB_GAIN = " + String(awb_gain));
+
+      if (instr(camIniData, "WB_MODE=")) {
+        String strwbm = split(camIniData, "WB_MODE=", "\r\n");
+        strwbm.trim();
+        wb_mode = strwbm.toInt();        
+      }
+      Serial.println("WB_MODE = " + String(wb_mode));
+
+      if (instr(camIniData, "EXPOSURE_CTRL=")) {
+        String strexp = split(camIniData, "EXPOSURE_CTRL=", "\r\n");
+        strexp.trim();
+        exposure_ctrl = strexp.toInt();
+      }
+      Serial.println("EXPOSURE_CTRL = " + String(exposure_ctrl));
+
+      if (instr(camIniData, "AEC2=")) {
+        String straec2 = split(camIniData, "AEC2=", "\r\n");
+        straec2.trim();
+        aec2 = straec2.toInt();
+      }
+      Serial.println("AEC2 = " + String(aec2));
+
+      if (instr(camIniData, "AE_LEVEL=")) {
+        String strael = split(camIniData, "AE_LEVEL=", "\r\n");
+        strael.trim();
+        ae_level = strael.toInt();
+      }
+      Serial.println("AE_LEVEL = " + String(ae_level));
+
+      if (instr(camIniData, "AEC_VALUE=")) {
+        String straecv = split(camIniData, "AEC_VALUE=", "\r\n");
+        straecv.trim();
+        aec_value = straecv.toInt();
+      }
+      Serial.println("AEC_VALUE = " + String(aec_value));
+
+      if (instr(camIniData, "GAIN_CTRL=")) {
+        String strgai = split(camIniData, "GAIN_CTRL=", "\r\n");
+        strgai.trim();
+        gain_ctrl = strgai.toInt();
+      }
+      Serial.println("GAIN_CTRL = " + String(gain_ctrl));
+
+      if (instr(camIniData, "AGC_GAIN=")) {
+        String stragcg = split(camIniData, "AGC_GAIN=", "\r\n");
+        stragcg.trim();
+        agc_gain = stragcg.toInt();
+      }
+      Serial.println("AGC_GAIN = " + String(agc_gain));
+
+      if (instr(camIniData, "GAINCEILING")) {
+        String strgac= split(camIniData, "GAINCEILING=", "\r\n");
+        strgac.trim();
+        gainceiling = strgac.toInt();
+      }
+      Serial.println("GAINCEILING = " + String(gainceiling));
+
+      if (instr(camIniData, "BPC=")) {
+        String strbpc = split(camIniData, "BPC=", "\r\n");
+        strbpc.trim();
+        bpc = strbpc.toInt();
+      }
+      Serial.println("BPC = " + String(bpc));
+
+      if (instr(camIniData, "WPC=")) {
+        String strwpc = split(camIniData, "WPC=", "\r\n");
+        strwpc.trim();
+        wpc = strwpc.toInt();
+      }
+      Serial.println("WPC = " + String(wpc));
+
+      if (instr(camIniData, "RAW_GMA=")) {
+        String strraw = split(camIniData, "RAW_GMA=", "\r\n");
+        strraw.trim();
+        raw_gma = strraw.toInt();
+      }
+      Serial.println("RAW_GMA = " + String(raw_gma));
+
+      if (instr(camIniData, "LENC=")) {
+        String strlenc = split(camIniData, "LENC=", "\r\n");
+        strlenc.trim();
+        lenc = strlenc.toInt();
+      }
+      Serial.println("LENC = " + String(lenc));
+
+      if (instr(camIniData, "HMIRROR=")) {
+        String strhmi = split(camIniData, "HMIRROR=", "\r\n");
+        strhmi.trim();
+        hmirror = strhmi.toInt();
+      }
+      Serial.println("HMIRROR = " + String(hmirror));
+
+      if (instr(camIniData, "VFLIP=")) {
+        String strvfl = split(camIniData, "VFLIP=", "\r\n");
+        strvfl.trim();
+        vflip = strvfl.toInt();
+      }
+      Serial.println("VFLIP = " + String(vflip));
+
+      if (instr(camIniData, "DCW=")) {
+        String strdcw = split(camIniData, "DCW=", "\r\n");
+        strdcw.trim();
+        dcw = strdcw.toInt();
+      }
+      Serial.println("DCW = " + String(dcw));
+
+      if (instr(camIniData, "COLORBAR=")) {
+        String strcolo = split(camIniData, "COLORBAR=", "\r\n");
+        strcolo.trim();
+        colorbar = strcolo.toInt();
+      }
+      Serial.println("COLORBAR = " + String(colorbar));
+
+      if (instr(camIniData, "PERIOD=")) {
+        String strper = split(camIniData, "PERIOD=", "\r\n");
+        strper.trim();
+        period = strper.toInt();
+      }
+      Serial.println("PERIOD = " + String(period));
+    }
+  } else {
+    Serial.println("no camconfig.ini found, start writeCamConfig");
+    writeCamConfig();
   }
 
 
@@ -1311,6 +1618,10 @@ void setup() {
     request->send(404);
   });
 
+  server.on("/camconfig.ini", HTTP_ANY, [](AsyncWebServerRequest *request) {
+    request->send(404);
+  });
+
   server.on("/upload.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", upload_gz, sizeof(upload_gz));
     response->addHeader("Content-Encoding", "gzip");
@@ -1337,6 +1648,14 @@ void setup() {
 
   server.on("/config.html", HTTP_POST, [](AsyncWebServerRequest *request) {
     handleConfig(request);
+  });
+
+  server.on("/camconfig.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+    handleCamConfigHtml(request);
+  });
+
+  server.on("/camconfig.html", HTTP_POST, [](AsyncWebServerRequest *request) {
+    handleCamConfig(request);
   });
 
   server.on("/admin.html", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -1417,6 +1736,7 @@ void loop() {
   SD_MMC.begin();
   delay(1000);
   writeConfig();
+  writeCamConfig();
   }
 
   // take the first pic after boot
