@@ -10,16 +10,8 @@ TODOs:
   - with preview?
 - webcam stream?
 
-DONE:
-+ copy jailbreak esp stuff - file management, info
-+ take picture every 3 minutes
-+ fixed config read/write for server + cam
-
-NOTES:
-To edit the html stuff (pages.h), copy the numbers and paste into https://gchq.github.io/CyberChef/ using
-From Decimal (Comma) -> Gunzip to create HTML, then Gzip (with filename) -> To Decimal (comma), then paste
-back into pages.h
-
+Further instructions -> README.md
+Changelog -> CHANGELOG.md
 */
 
 #include "esp_camera.h"

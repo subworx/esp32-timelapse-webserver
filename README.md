@@ -65,3 +65,10 @@ In Arduino IDE, make the following settings in the `Tools` menu:
 - **config.html** - used to configure wifi ap and ip settings.
 - **format.html** - used to format the internal storage of the esp board.
 - **reboot.html** - used to reboot the esp board.
+
+If you want to edit some of the internal pages, they can be found in `Pages.h` and are gzipped:
+- Copy the numbers from any PROGMEM block and paste them into  https://gchq.github.io/CyberChef/.
+- Use `From Decimal (Comma) -> Gunzip` to create HTML.
+- Edit what you want.
+- Copy the new HTML into the top box, then use `Gzip (with filename) -> To Decimal (comma)` to calculate numbers again.
+- Paste these numbers back into the correct block in Pages.h.
