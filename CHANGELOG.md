@@ -1,3 +1,5 @@
+# 1.20
+- more work on config for server and cam
 
 # 1.10
 - added web stuff from https://github.com/stooged/ESP32-Server-900u/

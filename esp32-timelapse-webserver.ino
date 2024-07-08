@@ -1,12 +1,26 @@
 /*
+
+ESP32 CAM control - timelapse with simple web interface @ https://github.com/subworx/esp32-timelapse-webserver/
+crapped together from:
+ - https://www.instructables.com/ESP32-CAM-Take-Photo-and-Save-to-MicroSD-Card-With/
+ - https://github.com/stooged/ESP32-Server-900u/
+
 TODOs:
-- fix config read/write/everything
+- cam config in extra file, extra page for cam stuff
+  - with preview?
 - webcam stream?
+
+DONE:
++ copy jailbreak esp stuff - file management, info
++ take picture every 3 minutes
++ fixed config read/write for server + cam
+
+NOTES:
+To edit the html stuff (pages.h), copy the numbers and paste into https://gchq.github.io/CyberChef/ using
+From Decimal (Comma) -> Gunzip to create HTML, then Gzip (with filename) -> To Decimal (comma), then paste
+back into pages.h
+
 */
-
-// https://www.instructables.com/ESP32-CAM-Take-Photo-and-Save-to-MicroSD-Card-With/
-// https://github.com/stooged/ESP32-Server-900u/
-
 
 #include "esp_camera.h"
 #include "FS.h"                // SD Card ESP32
@@ -23,12 +37,6 @@ TODOs:
 #include <Update.h>
 
 //-------------------DEFAULT SETTINGS------------------//
-
-                        // use config.ini [ true / false ]
-#define USECONFIG true  // this will allow you to change these settings below via the admin webpage. \
-                        // if you want to permanently use the values below then set this to false.
-
-#define FILESYS SD_MMC
 
 //create access point
 boolean startAP = false;
@@ -47,7 +55,7 @@ String WIFI_HOSTNAME = "esp32-cam";
 int WEB_PORT = 80;
 
 // Displayed firmware version
-String firmwareVer = "1.10";
+String firmwareVer = "1.20";
 
 // REPLACE WITH YOUR TIMEZONE STRING: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 String myTimezone ="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -55,10 +63,12 @@ String myTimezone ="CET-1CEST,M3.5.0,M10.5.0/3";
 int brightness = 0;     // -2 to 2
 int contrast = 0;       // -2 to 2
 int saturation = 0;     // -2 to 2
+int sharpness = 0;      // -2 to 2
+int denoise = 1;        // 0 = disable, 1 = enable
 int special_effect = 0; // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+int wb_mode = 0;        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
 int whitebal = 1;       // 0 = disable , 1 = enable
 int awb_gain = 1;       // 0 = disable , 1 = enable
-int wb_mode = 0;        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
 int exposure_ctrl = 1;  // 0 = disable , 1 = enable
 int aec2 = 0;           // 0 = disable , 1 = enable
 int ae_level = 0;       // -2 to 2
@@ -69,14 +79,14 @@ int gainceiling = (gainceiling_t)0;  // 0 to 6
 int bpc = 0;            // 0 = disable , 1 = enable
 int wpc = 1;            // 0 = disable , 1 = enable
 int raw_gma = 1;        // 0 = disable , 1 = enable
-int hmirror = 0;        // 0 = disable , 1 = enable
 int lenc = 1;           // 0 = disable , 1 = enable
+int hmirror = 0;        // 0 = disable , 1 = enable
 int vflip = 0;          // 0 = disable , 1 = enable
 int dcw = 1;            // 0 = disable , 1 = enable
 int colorbar = 0;       // 0 = disable , 1 = enable
 
 //const unsigned long period = 1000; // period in milliseconds - 1sec
-const unsigned long period = 180000; // period in milliseconds - 3min
+unsigned long period = 180000; // period in milliseconds - 3min
 
 //-----------------------------------------------------//
 
@@ -196,7 +206,9 @@ void handleFwUpdate(AsyncWebServerRequest *request, String filename, size_t inde
   if (final) {
     if (Update.end(true)) {
       //HWSerial.printf("Update Success: %uB\n", index+len);
-      String tmphtm = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\"><style type=\"text/css\">body {background-color: #1451AE; color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 0 0.0; padding: 0.4em 0.4em 0.4em 0.6em;}</style></head><center><br><br><br><br><br><br>Update Success, Rebooting.</center></html>";
+      String tmphtm = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\"><style type=\"text/css\">";
+      tmphtm += "body {background-color: #1451AE; color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 0 0.0; padding: 0.4em 0.4em 0.4em 0.6em;}";
+      tmphtm += "</style></head><center><br><br><br><br><br><br>Update Success, Rebooting.</center></html>";
       request->send(200, "text/html", tmphtm);
       delay(1000);
       ESP.restart();
@@ -217,8 +229,8 @@ void handleDelete(AsyncWebServerRequest *request) {
     request->redirect("/fileman.html");
     return;
   }
-  if (FILESYS.exists("/" + path) && path != "/" && !path.equals("config.ini")) {
-    FILESYS.remove("/" + path);
+  if (SD_MMC.exists("/" + path) && path != "/" && !path.equals("config.ini")) {
+    SD_MMC.remove("/" + path);
   }
   request->redirect("/fileman.html");
 }
@@ -226,8 +238,11 @@ void handleDelete(AsyncWebServerRequest *request) {
 
 
 void handleFileMan(AsyncWebServerRequest *request) {
-  File dir = FILESYS.open("/");
-  String output = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>File Manager</title><link rel=\"stylesheet\" href=\"style.css\"><style>body{overflow-y:auto;} th{border: 1px solid #dddddd; background-color:gray;padding: 8px;}</style><script>function statusDel(fname) {var answer = confirm(\"Are you sure you want to delete \" + fname + \" ?\");if (answer) {return true;} else { return false; }} </script></head><body><br><table id=filetable></table><script>var filelist = [";
+  File dir = SD_MMC.open("/");
+  String output = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>File Manager</title>";
+  output += "<link rel=\"stylesheet\" href=\"style.css\"><style>body{overflow-y:auto;} th{border: 1px solid #dddddd; background-color:gray;padding: 8px;}";
+  output += "</style><script>function statusDel(fname) {var answer = confirm(\"Are you sure you want to delete \" + fname + \" ?\");";
+  output += "if (answer) {return true;} else { return false; }} </script></head><body><br><table id=filetable></table><script>var filelist = [";
   int fileCount = 0;
   while (dir) {
     File file = dir.openNextFile();
@@ -246,17 +261,28 @@ void handleFileMan(AsyncWebServerRequest *request) {
     esp_task_wdt_reset();
   }
   if (fileCount == 0) {
-    output += "];</script><center>No files found<br>You can upload files using the <a href=\"/upload.html\" target=\"mframe\"><u>File Uploader</u></a> page.</center></p></body></html>";
+    output += "];</script><center>No files found<br>You can upload files using the <a href=\"/upload.html\" target=\"mframe\">";
+    output += "<u>File Uploader</u></a> page.</center></p></body></html>";
   } else {
-    output += "];var output = \"\";filelist.forEach(function(entry) {var splF = entry.split(\"|\"); output += \"<tr>\";output += \"<td><a href=\\\"\" +  splF[0] + \"\\\">\" + splF[0] + \"</a></td>\"; output += \"<td>\" + splF[1] + \"</td>\";output += \"<td><a href=\\\"/\" + splF[0] + \"\\\" download><button type=\\\"submit\\\">Download</button></a></td>\";output += \"<td><form action=\\\"/delete\\\" method=\\\"post\\\"><button type=\\\"submit\\\" name=\\\"file\\\" value=\\\"\" + splF[0] + \"\\\" onClick=\\\"return statusDel('\" + splF[0] + \"');\\\">Delete</button></form></td>\";output += \"</tr>\";}); document.getElementById(\"filetable\").innerHTML = \"<tr><th colspan='1'><center>File Name</center></th><th colspan='1'><center>File Size</center></th><th colspan='1'><center><a href='/dlall' target='mframe'><button type='submit'>Download All</button></a></center></th><th colspan='1'><center><a href='/format.html' target='mframe'><button type='submit'>Delete All</button></a></center></th></tr>\" + output;</script></body></html>";
+    output += "];var output = \"\";filelist.forEach(function(entry) {var splF = entry.split(\"|\"); output += \"<tr>\";output += \"<td>";
+    output += "<a href=\\\"\" +  splF[0] + \"\\\">\" + splF[0] + \"</a></td>\"; output += \"<td>\" + splF[1] + \"</td>\";output += \"<td>";
+    output += "<a href=\\\"/\" + splF[0] + \"\\\" download><button type=\\\"submit\\\">Download</button></a></td>\";output += \"<td>";
+    output += "<form action=\\\"/delete\\\" method=\\\"post\\\"><button type=\\\"submit\\\" name=\\\"file\\\" value=\\\"\" + splF[0] + \"\\\" ";
+    output += "onClick=\\\"return statusDel('\" + splF[0] + \"');\\\">Delete</button></form></td>\";output += \"</tr>\";}); ";
+    output += "document.getElementById(\"filetable\").innerHTML = \"<tr><th colspan='1'><center>File Name</center></th><th colspan='1'>";
+    output += "<center>File Size</center></th><th colspan='1'><center><a href='/dlall' target='mframe'><button type='submit'>Download All</button></a>";
+    output += "</center></th><th colspan='1'><center><a href='/format.html' target='mframe'><button type='submit'>Delete All</button></a></center></th>";
+    output += "</tr>\" + output;</script></body></html>";
   }
   request->send(200, "text/html", output);
 }
 
 
 void handleDlFiles(AsyncWebServerRequest *request) {
-  File dir = FILESYS.open("/");
-  String output = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>File Downloader</title><link rel=\"stylesheet\" href=\"style.css\"><style>body{overflow-y:auto;}</style><script type=\"text/javascript\" src=\"jzip.js\"></script><script>var filelist = [";
+  File dir = SD_MMC.open("/");
+  String output = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>File Downloader</title>";
+  output += "<link rel=\"stylesheet\" href=\"style.css\"><style>body{overflow-y:auto;}</style><script type=\"text/javascript\" src=\"jzip.js\"></script>";
+  output += "<script>var filelist = [";
   int fileCount = 0;
   while (dir) {
     File file = dir.openNextFile();
@@ -274,18 +300,29 @@ void handleDlFiles(AsyncWebServerRequest *request) {
     esp_task_wdt_reset();
   }
   if (fileCount == 0) {
-    output += "];</script></head><center>No files found to download<br>You can upload files using the <a href=\"/upload.html\" target=\"mframe\"><u>File Uploader</u></a> page.</center></p></body></html>";
+    output += "];</script></head><center>No files found to download<br>You can upload files using the <a href=\"/upload.html\" target=\"mframe\">";
+    output += "<u>File Uploader</u></a> page.</center></p></body></html>";
   } else {
-    output += "]; async function dlAll(){var zip = new JSZip();for (var i = 0; i < filelist.length; i++) {if (filelist[i] != ''){var xhr = new XMLHttpRequest();xhr.open('GET',filelist[i],false);xhr.overrideMimeType('text/plain; charset=x-user-defined'); xhr.onload = function(e) {if (this.status == 200) {zip.file(filelist[i], this.response,{binary: true});}};xhr.send();document.getElementById('fp').innerHTML = 'Adding: ' + filelist[i];await new Promise(r => setTimeout(r, 50));}}document.getElementById('gen').style.display = 'none';document.getElementById('comp').style.display = 'block';zip.generateAsync({type:'blob'}).then(function(content) {saveAs(content,'esp_files.zip');});}</script></head><body onload='setTimeout(dlAll,100);'><center><br><br><br><br><div id='gen' style='display:block;'><div id='loader'></div><br><br>Generating ZIP<br><p id='fp'></p></div><div id='comp' style='display:none;'><br><br><br><br>Complete<br><br>Downloading: esp_files.zip</div></center></body></html>";
+    output += "]; async function dlAll(){var zip = new JSZip();for (var i = 0; i < filelist.length; i++) {if (filelist[i] != '')";
+    output += "{var xhr = new XMLHttpRequest();xhr.open('GET',filelist[i],false);xhr.overrideMimeType('text/plain; charset=x-user-defined'); ";
+    output += "xhr.onload = function(e) {if (this.status == 200) {zip.file(filelist[i], this.response,{binary: true});}};";
+    output += "xhr.send();document.getElementById('fp').innerHTML = 'Adding: ' + filelist[i];await new Promise(r => setTimeout(r, 50));}}";
+    output += "document.getElementById('gen').style.display = 'none';document.getElementById('comp').style.display = 'block';";
+    output += "zip.generateAsync({type:'blob'}).then(function(content) {saveAs(content,'esp_files.zip');});}</script></head>";
+    output += "<body onload='setTimeout(dlAll,100);'><center><br><br><br><br><div id='gen' style='display:block;'><div id='loader'></div><br><br>";
+    output += "Generating ZIP<br><p id='fp'></p></div><div id='comp' style='display:none;'><br><br><br><br>Complete<br><br>Downloading: ";
+    output += "esp_files.zip</div></center></body></html>";
   }
   request->send(200, "text/html", output);
 }
 
 
 // TODO: Add CAM values etc
-#if USECONFIG
 void handleConfig(AsyncWebServerRequest *request) {
-  if (request->hasParam("ap_ssid", true) && request->hasParam("ap_pass", true) && request->hasParam("web_ip", true) && request->hasParam("web_port", true) && request->hasParam("subnet", true) && request->hasParam("wifi_ssid", true) && request->hasParam("wifi_pass", true) && request->hasParam("wifi_host", true)) {
+  if (request->hasParam("ap_ssid", true) && request->hasParam("ap_pass", true) && request->hasParam("web_ip", true) && 
+  request->hasParam("web_port", true) && request->hasParam("subnet", true) && request->hasParam("wifi_ssid", true) && 
+  request->hasParam("wifi_pass", true) && request->hasParam("wifi_host", true)) {
+    //Serial.println("-- processing config --");
     AP_SSID = request->getParam("ap_ssid", true)->value();
     if (!request->getParam("ap_pass", true)->value().equals("********")) {
       AP_PASS = request->getParam("ap_pass", true)->value();
@@ -300,24 +337,126 @@ void handleConfig(AsyncWebServerRequest *request) {
     String WIFI_HOSTNAME = request->getParam("wifi_host", true)->value();
     String tmpua = "false";
     String tmpcw = "false";
-        if (request->hasParam("useap", true)) { tmpua = "true"; }
+    if (request->hasParam("useap", true)) { tmpua = "true"; }
     if (request->hasParam("usewifi", true)) { tmpcw = "true"; }
-        if (tmpua.equals("false") && tmpcw.equals("false")) { tmpua = "true"; }
+    if (tmpua.equals("false") && tmpcw.equals("false")) { tmpua = "true"; }
+    // new cam values
+    String tmpMytimezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+    if (request->hasParam("mytimezone", true)) { tmpMytimezone = request->getParam("mytimezone", true)->value(); }
+    String tmpBrightness = "0";
+    if (request->hasParam("brightness", true)) { tmpBrightness = request->getParam("brightness", true)->value(); }
+    String tmpContrast = "0";
+    if (request->hasParam("contrast", true)) { tmpContrast = request->getParam("contrast", true)->value(); }
+    String tmpSaturation = "0";
+    if (request->hasParam("saturation", true)) { tmpSaturation = request->getParam("saturation", true)->value(); }
+    String tmpSharpness = "0";
+    if (request->hasParam("sharpness", true)) { tmpSharpness = request->getParam("sharpness", true)->value(); }
+    String tmpDenoise = "1";
+    if (request->hasParam("denoise", true)) { tmpDenoise = request->getParam("denoise", true)->value(); }
+    String tmpSpecial_effect = "0";
+    if (request->hasParam("special_effect", true)) { tmpSpecial_effect = request->getParam("special_effect", true)->value(); }
+    String tmpWhitebal = "1";
+    if (request->hasParam("whitebal", true)) { tmpWhitebal = request->getParam("whitebal", true)->value(); }
+    String tmpAwb_gain = "1";
+    if (request->hasParam("awb_gain", true)) { tmpAwb_gain = request->getParam("awb_gain", true)->value(); }
+    String tmpWb_mode = "0";
+    if (request->hasParam("wb_mode", true)) { tmpWb_mode = request->getParam("wb_mode", true)->value(); }
+    String tmpExposure_ctrl = "1";
+    if (request->hasParam("exposure_ctrl", true)) { tmpExposure_ctrl = request->getParam("exposure_ctrl", true)->value(); }
+    String tmpAec2 = "0";
+    if (request->hasParam("aec2", true)) { tmpAec2 = request->getParam("aec2", true)->value(); }
+     String tmpAe_level = "0";
+    if (request->hasParam("ae_level", true)) { tmpAe_level = request->getParam("ae_level", true)->value(); }
+    String tmpAec_value = "300";
+    if (request->hasParam("aec_value", true)) { tmpAec_value = request->getParam("aec_value", true)->value(); }
+    String tmpGain_ctrl = "1";
+    if (request->hasParam("gain_ctrl", true)) { tmpGain_ctrl = request->getParam("gain_ctrl", true)->value(); }
+    String tmpAgc_gain = "0";
+    if (request->hasParam("agc_gain", true)) { tmpAgc_gain = request->getParam("agc_gain", true)->value(); }
+    String tmpGainceiling = "0";
+    if (request->hasParam("gainceiling", true)) { tmpGainceiling = request->getParam("gainceiling", true)->value(); }
+    String tmpBpc = "0";
+    if (request->hasParam("bpc", true)) { tmpBpc = request->getParam("bpc", true)->value(); }
+    String tmpWpc = "1";
+    if (request->hasParam("wpc", true)) { tmpWpc = request->getParam("wpc", true)->value(); }
+    String tmpRaw_gma = "1";
+    if (request->hasParam("raw_gma", true)) { tmpRaw_gma = request->getParam("raw_gma", true)->value(); }
+    String tmpLenc = "1";
+    if (request->hasParam("lenc", true)) { tmpLenc = request->getParam("lenc", true)->value(); }
+    String tmpHmirror = "0";
+    if (request->hasParam("hmirror", true)) { tmpHmirror = request->getParam("hmirror", true)->value(); }
+    String tmpVflip = "0";
+    if (request->hasParam("vflip", true)) { tmpVflip = request->getParam("vflip", true)->value(); }
+    String tmpDcw = "1";
+    if (request->hasParam("dcw", true)) { tmpDcw = request->getParam("dcw", true)->value(); }
+    String tmpColorbar = "0";
+    if (request->hasParam("colorbar", true)) { tmpColorbar = request->getParam("colorbar", true)->value(); }
+    String tmpPeriod = "180000";
+    if (request->hasParam("period", true)) { tmpPeriod = request->getParam("period", true)->value(); }
+    String iniContent = "\r\nAP_SSID=" + AP_SSID;
+    iniContent += "\r\nAP_PASS=" + AP_PASS;
+    iniContent += "\r\nWEBSERVER_IP=" + tmpip;
+    iniContent += "\r\nWEBSERVER_PORT=" + tmpwport;
+    iniContent += "\r\nSUBNET_MASK=" + tmpsubn;
+    iniContent += "\r\nWIFI_SSID=" + WIFI_SSID;
+    iniContent += "\r\nWIFI_PASS=" + WIFI_PASS;
+    iniContent += "\r\nWIFI_HOST=" + WIFI_HOSTNAME;
+    iniContent += "\r\nUSEAP=" + tmpua;
+    iniContent += "\r\nCONWIFI=" + tmpcw;
+    iniContent += "\r\nMYTIMEZONE=" + tmpMytimezone;
+    iniContent += "\r\nBRIGHTNESS=" + tmpBrightness;
+    iniContent += "\r\nCONTRAST=" + tmpContrast;
+    iniContent += "\r\nSATURATION=" + tmpSaturation;
+    iniContent += "\r\nSHARPNESS=" + tmpSharpness;
+    iniContent += "\r\nDENOISE=" + tmpDenoise;
+    iniContent += "\r\nSPECIAL_EFFECT=" + tmpSpecial_effect;
+    iniContent += "\r\nWHITEBAL=" + tmpWhitebal;
+    iniContent += "\r\nAWB_GAIN=" + tmpAwb_gain;
+    iniContent += "\r\nWB_MODE=" + tmpWb_mode;
+    iniContent += "\r\nEXPOSURE_CTRL=" + tmpExposure_ctrl;
+    iniContent += "\r\nAEC2=" + tmpAec2;
+    iniContent += "\r\nAE_LEVEL=" + tmpAe_level;
+    iniContent += "\r\nAEC_VALUE=" + tmpAec_value;
+    iniContent += "\r\nGAIN_CTRL=" + tmpGain_ctrl;
+    iniContent += "\r\nAGC_GAIN=" + tmpAgc_gain;
+    iniContent += "\r\nGAINCEILING=" + tmpGainceiling;
+    iniContent += "\r\nBPC=" + tmpBpc;
+    iniContent += "\r\nWPC=" + tmpWpc;
+    iniContent += "\r\nRAW_GMA=" + tmpRaw_gma;
+    iniContent += "\r\nLENC=" + tmpLenc;
+    iniContent += "\r\nHMIRROR=" + tmpHmirror;
+    iniContent += "\r\nVFLIP=" + tmpVflip;
+    iniContent += "\r\nDCW=" + tmpDcw;
+    iniContent += "\r\nCOLORBAR=" + tmpColorbar;
+    iniContent += "\r\nPERIOD=" + tmpPeriod;
+    iniContent += "\r\n";
+    //Serial.println(iniContent);
     //TODO Fix to work with the other FS module, but to SD
     File iniFile = SD_MMC.open("/config.ini", "w");
     if (iniFile) {
-      iniFile.print("\r\nAP_SSID=" + AP_SSID + "\r\nAP_PASS=" + AP_PASS + "\r\nWEBSERVER_IP=" + tmpip + "\r\nWEBSERVER_PORT=" + tmpwport + "\r\nSUBNET_MASK=" + tmpsubn + "\r\nWIFI_SSID=" + WIFI_SSID + "\r\nWIFI_PASS=" + WIFI_PASS + "\r\nWIFI_HOST=" + WIFI_HOSTNAME + "\r\nUSEAP=" + tmpua + "\r\nCONWIFI=" + tmpcw + "\r\n");
+      //Serial.println("writing ini");
+      //iniFile.print("\r\nAP_SSID=" + AP_SSID + "\r\nAP_PASS=" + AP_PASS + "\r\nWEBSERVER_IP=" + tmpip + "\r\nWEBSERVER_PORT=" + tmpwport + "\r\nSUBNET_MASK=" + 
+      //tmpsubn + "\r\nWIFI_SSID=" + WIFI_SSID + "\r\nWIFI_PASS=" + WIFI_PASS + "\r\nWIFI_HOST=" + WIFI_HOSTNAME + "\r\nUSEAP=" + tmpua + "\r\nCONWIFI=" + tmpcw +
+      // "\r\nMYTIMEZONE=" + tmpMytimezone + "\r\nBRIGHTNESS=" + tmpBrightness + "\r\n");
+      iniFile.print(iniContent);
       iniFile.close();
     }
-    String htmStr = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\"><style type=\"text/css\">#loader {z-index: 1;width: 50px;height: 50px;margin: 0 0 0 0;border: 6px solid #f3f3f3;border-radius: 50%;border-top: 6px solid #3498db;width: 50px;height: 50px;-webkit-animation: spin 2s linear infinite;animation: spin 2s linear infinite; } @-webkit-keyframes spin {0%{-webkit-transform: rotate(0deg);}100%{-webkit-transform: rotate(360deg);}}@keyframes spin{0%{ transform: rotate(0deg);}100%{transform: rotate(360deg);}}body {background-color: #1451AE; color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 0 0.0; padding: 0.4em 0.4em 0.4em 0.6em;} #msgfmt {font-size: 16px; font-weight: normal;}#status {font-size: 16px; font-weight: normal;}</style></head><center><br><br><br><br><br><p id=\"status\"><div id='loader'></div><br>Config saved<br>Rebooting</p></center></html>";
+    String htmStr = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"8; url=/info.html\">";
+    htmStr += "<style type=\"text/css\">#loader {z-index: 1;width: 50px;height: 50px;margin: 0 0 0 0;border: 6px solid #f3f3f3;";
+    htmStr += "border-radius: 50%;border-top: 6px solid #3498db;width: 50px;height: 50px;-webkit-animation: spin 2s linear infinite;";
+    htmStr += "animation: spin 2s linear infinite; } @-webkit-keyframes spin {0%{-webkit-transform: rotate(0deg);}";
+    htmStr += "100%{-webkit-transform: rotate(360deg);}}@keyframes spin{0%{ transform: rotate(0deg);}100%{transform: rotate(360deg);}}";
+    htmStr += "body {background-color: #1451AE; color: #ffffff; font-size: 20px; font-weight: bold; margin: 0 0 0 0.0; padding: 0.4em 0.4em 0.4em 0.6em;}";
+    htmStr += " #msgfmt {font-size: 16px; font-weight: normal;}#status {font-size: 16px; font-weight: normal;}</style></head><center><br><br><br><br><br>";
+    htmStr += "<p id=\"status\"><div id='loader'></div><br>Config saved<br>Rebooting</p></center></html>";
     request->send(200, "text/html", htmStr);
     delay(1000);
     ESP.restart();
   } else {
+    //Serial.println(" broken/missing/whatever parameters for config");
     request->redirect("/config.html");
   }
 }
-#endif
 
 void handleReboot(AsyncWebServerRequest *request) {
   Serial.print("Rebooting ESP");
@@ -329,17 +468,81 @@ void handleReboot(AsyncWebServerRequest *request) {
 }
 
 
-#if USECONFIG
 void handleConfigHtml(AsyncWebServerRequest *request) {
   String tmpUa = "";
   String tmpCw = "";
-  if (startAP) { tmpUa = "checked"; }
-  if (connectWifi) { tmpCw = "checked"; }
-//TODO update "config page" for more shit
-  String htmStr = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Config Editor</title><style type=\"text/css\">body {background-color: #1451AE; color: #ffffff; font-size: 14px;font-weight: bold;margin: 0 0 0 0.0;padding: 0.4em 0.4em 0.4em 0.6em;}input[type=\"submit\"]:hover {background: #ffffff;color: green;}input[type=\"submit\"]:active{outline-color: green;color: green;background: #ffffff; }table {font-family: arial, sans-serif;border-collapse: collapse;}td {border: 1px solid #dddddd;text-align: left;padding: 8px;}th {border: 1px solid #dddddd; background-color:gray;text-align: center;padding: 8px;}</style></head><body><form action=\"/config.html\" method=\"post\"><center><table><tr><th colspan=\"2\"><center>Access Point</center></th></tr><tr><td>AP SSID:</td><td><input name=\"ap_ssid\" value=\"" + AP_SSID + "\"></td></tr><tr><td>AP PASSWORD:</td><td><input name=\"ap_pass\" value=\"********\"></td></tr><tr><td>AP IP:</td><td><input name=\"web_ip\" value=\"" + Server_IP.toString() + "\"></td></tr><tr><td>SUBNET MASK:</td><td><input name=\"subnet\" value=\"" + Subnet_Mask.toString() + "\"></td></tr><tr><td>START AP:</td><td><input type=\"checkbox\" name=\"useap\" " + tmpUa + "></td></tr><tr><th colspan=\"2\"><center>Web Server</center></th></tr><tr><td>WEBSERVER PORT:</td><td><input name=\"web_port\" value=\"" + String(WEB_PORT) + "\"></td></tr><tr><th colspan=\"2\"><center>Wifi Connection</center></th></tr><tr><td>WIFI SSID:</td><td><input name=\"wifi_ssid\" value=\"" + WIFI_SSID + "\"></td></tr><tr><td>WIFI PASSWORD:</td><td><input name=\"wifi_pass\" value=\"********\"></td></tr><tr><td>WIFI HOSTNAME:</td><td><input name=\"wifi_host\" value=\"" + WIFI_HOSTNAME + "\"></td></tr><tr><td>CONNECT WIFI:</td><td><input type=\"checkbox\" name=\"usewifi\" " + tmpCw + "></td></tr><tr><th colspan=\"2\"><center>Auto USB Wait</center></th></tr><tr><td>WAIT TIME(ms):</td><td><input name=\"usbwait\" value=\" + USB_WAIT + \"></td></tr><tr><th colspan=\"2\"><center>ESP Sleep Mode</center></th></tr><tr><td>ENABLE SLEEP:</td><td><input type=\"checkbox\" name=\"espsleep\"  + tmpSlp + ></td></tr><tr><td>TIME TO SLEEP(minutes):</td><td><input name=\"sleeptime\" value=\" + TIME2SLEEP + \"></td></tr></table><br><input id=\"savecfg\" type=\"submit\" value=\"Save Config\"></center></form></body></html>";
+  if (startAP) { tmpUa = " checked"; }
+  if (connectWifi) { tmpCw = " checked"; }
+  String htmStr = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Config Editor</title>";
+  htmStr += "<style type=\"text/css\">body {background-color: #1451AE; color: #ffffff; font-size: 14px;font-weight: bold;margin: 0 0 0 0.0;";
+  htmStr += "padding: 0.4em 0.4em 0.4em 0.6em;}input[type=\"submit\"]:hover ";
+  htmStr += "{background: #ffffff;color: green;}input[type=\"submit\"]:active{outline-color: green;color: green;background: #ffffff; }";
+  htmStr += "table {font-family: arial, sans-serif;border-collapse: collapse;}td {border: 1px solid #dddddd;text-align: left;padding: 8px;}";
+  htmStr += "th {border: 1px solid #dddddd; background-color:gray;text-align: center;padding: 8px;}";
+  htmStr += "a:link {color: #ffffff;}a:visited {color: #ffffff;}a:hover {color: #ffffff;}a:active {color: #ffffff;}";
+  htmStr += "</style></head><body>";
+  htmStr += "<form action=\"/config.html\" method=\"post\"><center><table>";
+  htmStr += "<tr><th colspan=\"2\"><center>Access Point</center></th></tr>";
+  htmStr += "<tr><td>AP SSID:</td><td><input name=\"ap_ssid\" value=\"" + AP_SSID + "\"></td></tr>";
+  htmStr += "<tr><td>AP Password:</td><td><input name=\"ap_pass\" value=\"********\"></td></tr>";
+  htmStr += "<tr><td>AP IP:</td><td><input name=\"web_ip\" value=\"" + Server_IP.toString() + "\"></td></tr>";
+  htmStr += "<tr><td>Subnet Mask:</td><td><input name=\"subnet\" value=\"" + Subnet_Mask.toString() + "\"></td></tr>";
+  htmStr += "<tr><td>Start AP:</td><td><input type=\"checkbox\" name=\"useap\" " + tmpUa + "></td></tr>";
+  htmStr += "<tr><th colspan=\"2\"><center>Web Server</center></th></tr>";
+  htmStr += "<tr><td>Webserver Port:</td><td><input name=\"web_port\" value=\"" + String(WEB_PORT) + "\"></td></tr>";
+  htmStr += "<tr><th colspan=\"2\"><center>Wifi Connection</center></th></tr>";
+  htmStr += "<tr><td>WiFi SSID:</td><td><input name=\"wifi_ssid\" value=\"" + WIFI_SSID + "\"></td></tr>";
+  htmStr += "<tr><td>WiFi Password:</td><td><input name=\"wifi_pass\" value=\"********\"></td></tr>";
+  htmStr += "<tr><td>WiFi Hostname:</td><td><input name=\"wifi_host\" value=\"" + WIFI_HOSTNAME + "\"></td></tr>";
+  htmStr += "<tr><td>Connect WiFi:</td><td><input type=\"checkbox\" name=\"usewifi\" " + tmpCw + "></td></tr>";
+  htmStr += "<tr><th colspan=\"2\"><center>Time Zone</th></tr>";
+  htmStr += "<tr><td><a href=\"https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv\" target=\"_blank\">";
+  htmStr += "My Timezone</a>:</td><td><input name=\"mytimezone\" value=\"" + String(myTimezone) + "\"></td></tr>";
+  htmStr += "<tr><th colspan=\"2\"><center>Camera</th></tr>";
+  htmStr += "<tr><td>Period (ms):</td><td><input name=\"period\" value=\"" + String(period) + "\"></td></tr>";
+  htmStr += "<tr><td>Brightness (-2 to 2, Default 0):</td><td><input name=\"brightness\" value=\"" + String(brightness) + "\"></td></tr>";
+  htmStr += "<tr><td>Contrast (-2 to 2, Default 0):</td><td><input name=\"contrast\" value=\"" + String(contrast) + "\"></td></tr>";
+  htmStr += "<tr><td>Saturation (-2 to 2, Default 0):</td><td><input name=\"saturation\" value=\"" + String(saturation) + "\"></td></tr>";
+  htmStr += "<tr><td>Sharpness (-2 to 2, Default 0):</td><td><input name=\"sharpness\" value=\"" + String(sharpness) + "\"></td></tr>";
+  htmStr += "<tr><td>Denoise (0 / 1, Default 1):</td><td><input name=\"denoise\" value=\"" + String(denoise) + "\"></td></tr>";
+  htmStr += "<tr><td>Special Effect:</td>";
+  htmStr += "<td><select name=\"special_effect\">";
+  htmStr += "<option value=\"0\""; if (special_effect == 0) {htmStr += " selected";} htmStr += ">0 - No effect</option>";
+  htmStr += "<option value=\"1\""; if (special_effect == 1) {htmStr += " selected";} htmStr += ">1 - Negative</option>";
+  htmStr += "<option value=\"2\""; if (special_effect == 2) {htmStr += " selected";} htmStr += ">2 - Grayscale</option>";
+  htmStr += "<option value=\"3\""; if (special_effect == 3) {htmStr += " selected";} htmStr += ">3 - Red Tint</option>";
+  htmStr += "<option value=\"4\""; if (special_effect == 4) {htmStr += " selected";} htmStr += ">4 - Green Tint</option>";
+  htmStr += "<option value=\"5\""; if (special_effect == 5) {htmStr += " selected";} htmStr += ">5 - Blue tint</option>";
+  htmStr += "<option value=\"6\""; if (special_effect == 6) {htmStr += " selected";} htmStr += ">6 - Sepia</option>";
+  htmStr += "</select></td></tr>";
+  htmStr += "<tr><td>White Balance (0 / 1, Default 1):</td><td><input name=\"whitebal\" value=\"" + String(whitebal) + "\"></td></tr>";
+  htmStr += "<tr><td>awb_gain (0 / 1, Default 1):</td><td><input name=\"awb_gain\" value=\"" + String(awb_gain) + "\"></td></tr>";
+  htmStr += "<tr><td>wb_mode (0-4, if awb_gain enabled, Default 0):</td>";
+  htmStr += "<td><select name=\"wb_mode\">";
+  htmStr += "<option value=\"0\""; if (wb_mode == 0) {htmStr += " selected";} htmStr += ">0 - Auto</option>";
+  htmStr += "<option value=\"1\""; if (wb_mode == 1) {htmStr += " selected";} htmStr += ">1 - Sunny</option>";
+  htmStr += "<option value=\"2\""; if (wb_mode == 2) {htmStr += " selected";} htmStr += ">2 - Cloudy</option>";
+  htmStr += "<option value=\"3\""; if (wb_mode == 3) {htmStr += " selected";} htmStr += ">3 - Office</option>";
+  htmStr += "<option value=\"4\""; if (wb_mode == 4) {htmStr += " selected";} htmStr += ">4 - Home</option>";
+  htmStr += "</select></td></tr>";
+  htmStr += "<tr><td>exposure_ctrl (0 / 1, Default 1):</td><td><input name=\"exposure_ctrl\" value=\"" + String(exposure_ctrl) + "\"></td></tr>";
+  htmStr += "<tr><td>aec2 (0 / 1, Default 0):</td><td><input name=\"aec2\" value=\"" + String(aec2) + "\"></td></tr>";
+  htmStr += "<tr><td>ae_level (-2 to 2, Default 1):</td><td><input name=\"ae_level\" value=\"" + String(ae_level) + "\"></td></tr>";
+  htmStr += "<tr><td>aec_value (0-1200, Default 300):</td><td><input name=\"aec_value\" value=\"" + String(aec_value) + "\"></td></tr>";
+  htmStr += "<tr><td>gain_ctrl (0 / 1, Default 1):</td><td><input name=\"gain_ctrl\" value=\"" + String(gain_ctrl) + "\"></td></tr>";
+  htmStr += "<tr><td>agc_gain (0-30, Default 0):</td><td><input name=\"agc_gain\" value=\"" + String(agc_gain) + "\"></td></tr>";
+  htmStr += "<tr><td>gainceiling (0-6, Default 0):</td><td><input name=\"gainceiling\" value=\"" + String(gainceiling) + "\"></td></tr>";
+  htmStr += "<tr><td>bpc (0 / 1, Default 0):</td><td><input name=\"bpc\" value=\"" + String(bpc) + "\"></td></tr>";
+  htmStr += "<tr><td>wpc (0 / 1, Default 1):</td><td><input name=\"wpc\" value=\"" + String(wpc) + "\"></td></tr>";
+  htmStr += "<tr><td>raw_gma (0 / 1, Default 1):</td><td><input name=\"raw_gma\" value=\"" + String(raw_gma) + "\"></td></tr>";
+  htmStr += "<tr><td>lenc (0 / 1, Default 1):</td><td><input name=\"lenc\" value=\"" + String(lenc) + "\"></td></tr>";
+  htmStr += "<tr><td>hmirror (0 / 1, Default 0):</td><td><input name=\"hmirror\" value=\"" + String(hmirror) + "\"></td></tr>";
+  htmStr += "<tr><td>vflip (0 / 1, Default 0):</td><td><input name=\"vflip\" value=\"" + String(vflip) + "\"></td></tr>";
+  htmStr += "<tr><td>dcw (0 / 1, Default 1):</td><td><input name=\"dcw\" value=\"" + String(dcw) + "\"></td></tr>";
+  htmStr += "<tr><td>colorbar (0 / 1, Default 0):</td><td><input name=\"colorbar\" value=\"" + String(colorbar) + "\"></td></tr>";
+  htmStr += "</table><br><input id=\"savecfg\" type=\"submit\" value=\"Save Config\"></center></form></body></html>";
   request->send(200, "text/html", htmStr);
 }
-#endif
 
 
 void handleFileUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
@@ -354,7 +557,7 @@ void handleFileUpload(AsyncWebServerRequest *request, String filename, size_t in
     }
     if (filename.equals("/config.ini")) { return; }
     //HWSerial.printf("Upload Start: %s\n", filename.c_str());
-    upFile = FILESYS.open(filename, "w");
+    upFile = SD_MMC.open(filename, "w");
   }
   if (upFile) {
     upFile.write(data, len);
@@ -371,7 +574,9 @@ void handleInfo(AsyncWebServerRequest *request) {
   FlashMode_t ideMode = ESP.getFlashChipMode();
   String mcuType = CONFIG_IDF_TARGET;
   mcuType.toUpperCase();
-  String output = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>System Information</title><link rel=\"stylesheet\" href=\"style.css\"></head>";
+  String output = "<!DOCTYPE html><html><head>";
+  output += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  output += "<title>System Information</title><link rel=\"stylesheet\" href=\"style.css\"></head>";
   output += "<hr>###### Software ######<br><br>";
   output += "Firmware version " + firmwareVer + "<br>";
   output += "SDK version: " + String(ESP.getSdkVersion()) + "<br><hr>";
@@ -394,9 +599,9 @@ void handleInfo(AsyncWebServerRequest *request) {
             + "<br><hr>";
   output += "###### Storage information ######<br><br>";
   output += "Storage Device: SD<br>";
-  output += "Total Size: " + formatBytes(FILESYS.totalBytes()) + "<br>";
-  output += "Used Space: " + formatBytes(FILESYS.usedBytes()) + "<br>";
-  output += "Free Space: " + formatBytes(FILESYS.totalBytes() - FILESYS.usedBytes()) + "<br><hr>";
+  output += "Total Size: " + formatBytes(SD_MMC.totalBytes()) + "<br>";
+  output += "Used Space: " + formatBytes(SD_MMC.usedBytes()) + "<br>";
+  output += "Free Space: " + formatBytes(SD_MMC.totalBytes() - SD_MMC.usedBytes()) + "<br><hr>";
   if (ESP.getPsramSize() > 0) {
     output += "###### PSRam information ######<br><br>";
     output += "Psram Size: " + formatBytes(ESP.getPsramSize()) + "<br>";
@@ -407,34 +612,117 @@ void handleInfo(AsyncWebServerRequest *request) {
   output += "Ram size: " + formatBytes(ESP.getHeapSize()) + "<br>";
   output += "Free ram: " + formatBytes(ESP.getFreeHeap()) + "<br>";
   output += "Max alloc ram: " + formatBytes(ESP.getMaxAllocHeap()) + "<br><hr>";
+  output += "##### Network information #####<br><br>";
+  if (startAP) {
+    output += "SSID: " + AP_SSID + "<br>";
+    output += "Server IP: " + Server_IP.toString() + "<br>";
+    output += "Subnet: " + Subnet_Mask.toString() + "<br>";
+    output += "Server Port: " + String(WEB_PORT) + "<br><hr>";
+  }
+  if (connectWifi) {
+    output += "SSID: " + WIFI_SSID + "<br>";
+    output += "Server LAN IP: " + WiFi.localIP().toString() + "<br>";
+    output += "Server Port: " + String(WEB_PORT) + "<br>";
+    output += "Server Hostname: " + WIFI_HOSTNAME + "<br><hr>";
+  }
+  output += "##### Camera Parameters #####<br><br>";
+  output += "Picture interval (ms): " + String(period) + "<br>";
+  output += "Brightness (-2 to 2): " + String(brightness) + "<br>";
+  output += "Contrast (-2 to 2): " + String(contrast) + "<br>";
+  output += "Saturation (-2 to 2): " + String(saturation) + "<br>";
+  output += "Sharpness (-2 to 2): " + String(sharpness) + "<br>";
+  output += "Denoise (0/1): " + String(denoise) + "<br>";
+  output += "Special Effect (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Ting, 6 - Sepia): " + String(special_effect) + "<br>";
+  output += "White balance (0/1): " + String(whitebal) + "<br>";
+  output += "White Balance Gain (0/1): " + String(awb_gain) + "<br>";
+  output += "White Balance Mode (0-4 - if White Balance Gain=1: 0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home): " + String(wb_mode) + "<br>";
+  output += "Exposure Control (0/1): " + String(exposure_ctrl) + "<br>";
+  output += "Automatic Exposure Control 2 (0/1): " + String(aec2) + "<br>";
+  output += "Automatic Exposure Level (-2 to 2): " + String(ae_level) + "<br>";
+  output += "Automatic Exposure Control Value (0-1200): " + String(aec_value) + "<br>";
+  output += "Gain Control (0/1): " + String(gain_ctrl) + "<br>";
+  output += "Gain Control Gain (0-30): " + String(agc_gain) + "<br>";
+  output += "Gain Control Gain ceiling (0-6): " + String(gainceiling) + "<br>";
+  output += "bpc (0/1): " + String(bpc) + "<br>";
+  output += "wpc (0/1): " + String(wpc) + "<br>";
+  output += "raw_gma (0/1): " + String(raw_gma) + "<br>";
+  output += "lenc (0/1): " + String(lenc) + "<br>";
+  output += "Horizontal mirror (0/1): " + String(hmirror) + "<br>";
+  output += "Vertical flip (0/1): " + String(vflip) + "<br>";
+  output += "dcw (0/1): " + String(dcw) + "<br>";
+  output += "colorbar (0/1): " + String(colorbar) + "<br><hr>";
   output += "###### Sketch information ######<br><br>";
   output += "Sketch hash: " + ESP.getSketchMD5() + "<br>";
   output += "Sketch size: " + formatBytes(ESP.getSketchSize()) + "<br>";
   output += "Free space available: " + formatBytes(ESP.getFreeSketchSpace() - ESP.getSketchSize()) + "<br><hr>";
-  output += "##### Camera Parameters #####<br><br>";
-  output += "</html>";
+    output += "</html>";
   request->send(200, "text/html", output);
 }
 
 //TODO fix values, add cam
-#if USECONFIG
 void writeConfig() {
-  File iniFile = FILESYS.open("/config.ini", "w");
+  File iniFile = SD_MMC.open("/config.ini", "w");
   if (iniFile) {
     String tmpua = "false";
     String tmpcw = "false";
     String tmpslp = "false";
     if (startAP) { tmpua = "true"; }
     if (connectWifi) { tmpcw = "true"; }
-    iniFile.print("\r\nAP_SSID=" + AP_SSID + "\r\nAP_PASS=" + AP_PASS + "\r\nWEBSERVER_IP=" + Server_IP.toString() + "\r\nWEBSERVER_PORT=" + String(WEB_PORT) + "\r\nSUBNET_MASK=" + Subnet_Mask.toString() + "\r\nWIFI_SSID=" + WIFI_SSID + "\r\nWIFI_PASS=" + WIFI_PASS + "\r\nWIFI_HOST=" + WIFI_HOSTNAME + "\r\nUSEAP=" + tmpua + "\r\nCONWIFI=" + tmpcw + "\r\nUSBWAIT= + USB_WAIT + \r\nESPSLEEP= + tmpslp + \r\nSLEEPTIME= + TIME2SLEEP + \r\n");
+    /*
+    iniFile.print("\r\nAP_SSID=" + AP_SSID + 
+    "\r\nAP_PASS=" + AP_PASS + 
+    "\r\nWEBSERVER_IP=" + Server_IP.toString() + 
+    "\r\nWEBSERVER_PORT=" + String(WEB_PORT) + 
+    "\r\nSUBNET_MASK=" + Subnet_Mask.toString() + 
+    "\r\nWIFI_SSID=" + WIFI_SSID + 
+    "\r\nWIFI_PASS=" + WIFI_PASS + 
+    "\r\nWIFI_HOST=" + WIFI_HOSTNAME + 
+    "\r\nUSEAP=" + tmpua + 
+    "\r\nCONWIFI=" + tmpcw + 
+    \r\n");*/
+    String iniContent = "\r\nAP_SSID=" + AP_SSID;
+    iniContent += "\r\nAP_PASS=" + AP_PASS;
+    iniContent += "\r\nWEBSERVER_IP=" + Server_IP.toString();
+    iniContent += "\r\nWEBSERVER_PORT=" + String(WEB_PORT);
+    iniContent += "\r\nSUBNET_MASK=" + Subnet_Mask.toString();
+    iniContent += "\r\nWIFI_SSID=" + WIFI_SSID;
+    iniContent += "\r\nWIFI_PASS=" + WIFI_PASS;
+    iniContent += "\r\nWIFI_HOST=" + WIFI_HOSTNAME;
+    iniContent += "\r\nUSEAP=" + tmpua;
+    iniContent += "\r\nCONWIFI=" + tmpcw;
+    iniContent += "\r\nMYTIMEZONE=" + myTimezone;
+    iniContent += "\r\nBRIGHTNESS=" + brightness;
+    iniContent += "\r\nCONTRAST=" + contrast;
+    iniContent += "\r\nSATURATION=" + saturation;
+    iniContent += "\r\nSHARPNESS=" + sharpness;
+    iniContent += "\r\nDENOISE=" + denoise;
+    iniContent += "\r\nSPECIAL_EFFECT=" + special_effect;
+    iniContent += "\r\nWHITEBAL=" + whitebal;
+    iniContent += "\r\nAWB_GAIN=" + awb_gain;
+    iniContent += "\r\nWB_MODE=" + wb_mode;
+    iniContent += "\r\nEXPOSURE_CTRL=" + exposure_ctrl;
+    iniContent += "\r\nAEC2=" + aec2;
+    iniContent += "\r\nAE_LEVEL=" + ae_level;
+    iniContent += "\r\nAEC_VALUE=" + aec_value;
+    iniContent += "\r\nGAIN_CTRL=" + gain_ctrl;
+    iniContent += "\r\nAGC_GAIN=" + agc_gain;
+    iniContent += "\r\nGAINCEILING=" + gainceiling;
+    iniContent += "\r\nBPC=" + bpc;
+    iniContent += "\r\nWPC=" + wpc;
+    iniContent += "\r\nRAW_GMA=" + raw_gma;
+    iniContent += "\r\nLENC=" + lenc;
+    iniContent += "\r\nHMIRROR=" + hmirror;
+    iniContent += "\r\nVFLIP=" + vflip;
+    iniContent += "\r\nDCW=" + dcw;
+    iniContent += "\r\nCOLORBAR=" + colorbar;
+    iniContent += "\r\nPERIOD=" + period;
     iniFile.close();
   }
 }
-#endif
 
 
 //----------------------//
-//  EPS CAM FUNCTIONS   //
+//  ESP CAM FUNCTIONS   //
 //----------------------//
 
 // Pin definition for CAMERA_MODEL_AI_THINKER
@@ -495,10 +783,9 @@ void configInitCamera(){
     //Serial.printf(" - psram found - ");
   } else {
     //config.frame_size = FRAMESIZE_SVGA;
-    config.frame_size = FRAMESIZE_UXGA;
-    //config.jpeg_quality = 12;
-    config.jpeg_quality = 10;
-    config.fb_count = 1;
+    config.frame_size = FRAMESIZE_SXGA;
+    config.jpeg_quality = 12;
+        config.fb_count = 1;
     //Serial.printf(" - NO psram found - ");
   }
   
@@ -510,49 +797,74 @@ void configInitCamera(){
   }
 
   sensor_t * s = esp_camera_sensor_get();
-  /*s->set_brightness(s, 0);     // -2 to 2
-  s->set_contrast(s, 0);       // -2 to 2
-  s->set_saturation(s, 0);     // -2 to 2
-  s->set_special_effect(s, 0); // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
-  s->set_whitebal(s, 1);       // 0 = disable , 1 = enable
-  s->set_awb_gain(s, 1);       // 0 = disable , 1 = enable
-  s->set_wb_mode(s, 0);        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
-  s->set_exposure_ctrl(s, 1);  // 0 = disable , 1 = enable
-  s->set_aec2(s, 0);           // 0 = disable , 1 = enable
-  s->set_ae_level(s, 0);       // -2 to 2
-  s->set_aec_value(s, 300);    // 0 to 1200
-  s->set_gain_ctrl(s, 1);      // 0 = disable , 1 = enable
-  s->set_agc_gain(s, 0);       // 0 to 30
-  s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
-  s->set_bpc(s, 0);            // 0 = disable , 1 = enable
-  s->set_wpc(s, 1);            // 0 = disable , 1 = enable
-  s->set_raw_gma(s, 1);        // 0 = disable , 1 = enable
-  s->set_hmirror(s, 0);        // 0 = disable , 1 = enable
-  s->set_lenc(s, 1);           // 0 = disable , 1 = enable
-  s->set_vflip(s, 0);          // 0 = disable , 1 = enable
-  s->set_dcw(s, 1);            // 0 = disable , 1 = enable
-  s->set_colorbar(s, 0);       // 0 = disable , 1 = enable*/
+  //s->set_brightness(s, 0);     // -2 to 2
+  //Serial.println("set brightness: " + String(brightness));
   s->set_brightness(s, brightness);     // -2 to 2
+  //s->set_contrast(s, 0);       // -2 to 2
+  //Serial.println("set contrast: " + String(contrast));
   s->set_contrast(s, contrast);       // -2 to 2
+  //s->set_saturation(s, 0);     // -2 to 2
+  //Serial.println("set saturation: " + String(saturation));
   s->set_saturation(s, saturation);     // -2 to 2
+  //s->set_sharpness(s, 0);      // -2 to 2
+  //Serial.println("set sharpness: " + String(sharpness));
+  s->set_sharpness(s, sharpness);      // -2 to 2
+  //s->set_denoise(s, 1);        // 0 = disable, 1 = enable
+  //Serial.println("set denoise: " + String(denoise));
+  s->set_denoise(s, denoise);        // 0 = disable, 1 = enable
+  //s->set_special_effect(s, 0); // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+  //Serial.println("set special_effect: " + String(special_effect));
   s->set_special_effect(s, special_effect); // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+  //s->set_whitebal(s, 1);       // 0 = disable , 1 = enabled
+  //Serial.println("set whitebal: " + String(whitebal));
   s->set_whitebal(s, whitebal);       // 0 = disable , 1 = enable
+  //s->set_awb_gain(s, 1);       // 0 = disable , 1 = enabled
+  //Serial.println("set awb_gain: " + String(awb_gain));
   s->set_awb_gain(s, awb_gain);       // 0 = disable , 1 = enable
+  //s->set_wb_mode(s, 0);        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+  //Serial.println("set wb_mode: " + String(wb_mode));
   s->set_wb_mode(s, wb_mode);        // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+  //s->set_exposure_ctrl(s, 1);  // 0 = disable , 1 = enable
+  //Serial.println("set exposure_ctrl: " + String(exposure_ctrl));
   s->set_exposure_ctrl(s, exposure_ctrl);  // 0 = disable , 1 = enable
+  //s->set_aec2(s, 0);           // 0 = disable , 1 = enable
+  //Serial.println("set aec2: " + String(aec2));
   s->set_aec2(s, aec2);           // 0 = disable , 1 = enable
-  s->set_ae_level(s, ae_level);       // -2 to 2
+  //s->set_aec_value(s, 300);    // 0 to 1200
+  //Serial.println("set aec_value: " + String(aec_value));
   s->set_aec_value(s, aec_value);    // 0 to 1200
+  //s->set_gain_ctrl(s, 1);      // 0 = disable , 1 = enable
+  //Serial.println("set gain_ctrl: " + String(gain_ctrl));
   s->set_gain_ctrl(s, gain_ctrl);      // 0 = disable , 1 = enable
+  //s->set_agc_gain(s, 0);       // 0 to 30
+  //Serial.println("set agc_gain: " + String(agc_gain));
   s->set_agc_gain(s, agc_gain);       // 0 to 30
+  //s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
+  //Serial.println("set gainceiling: " + String(gainceiling));
   s->set_gainceiling(s, gainceiling_t(gainceiling));  // 0 to 6
+  //s->set_bpc(s, 0);            // 0 = disable , 1 = enable
+  //Serial.println("set bpc: " + String(bpc));
   s->set_bpc(s, bpc);            // 0 = disable , 1 = enable
+  //s->set_wpc(s, 1);            // 0 = disable , 1 = enable
+  //Serial.println("set wpc: " + String(wpc));
   s->set_wpc(s, wpc);            // 0 = disable , 1 = enable
+  //s->set_raw_gma(s, 1);        // 0 = disable , 1 = enable
+  //Serial.println("set raw_gma: " + String(raw_gma));
   s->set_raw_gma(s, raw_gma);        // 0 = disable , 1 = enable
-  s->set_hmirror(s, hmirror);        // 0 = disable , 1 = enable
+  //s->set_lenc(s, 1);           // 0 = disable , 1 = enable
+  //Serial.println("set lenc: " + String(lenc));
   s->set_lenc(s, lenc);           // 0 = disable , 1 = enable
+  //s->set_hmirror(s, 0);        // 0 = disable , 1 = enable
+  //Serial.println("set hmirror: " + String(hmirror));
+  s->set_hmirror(s, hmirror);        // 0 = disable , 1 = enable
+  //s->set_vflip(s, 0);          // 0 = disable , 1 = enable
+  //Serial.println("set vflip: " + String(vflip));
   s->set_vflip(s, vflip);          // 0 = disable , 1 = enable
+  //s->set_dcw(s, 1);            // 0 = disable , 1 = enable
+  //Serial.println("set dcw: " + String(dcw));
   s->set_dcw(s, dcw);            // 0 = disable , 1 = enable
+  //s->set_colorbar(s, 0);       // 0 = disable , 1 = enable
+  //Serial.println("set colorbar: " + String(colorbar));
   s->set_colorbar(s, colorbar);       // 0 = disable , 1 = enable
 }
 
@@ -628,16 +940,15 @@ void takeSavePhoto(){
   camera_fb_t * fb = esp_camera_fb_get();
  
   //Uncomment the following lines if you're getting old pictures
-  //esp_camera_fb_return(fb); // dispose the buffered image
-  //fb = NULL; // reset to capture errors
-  //fb = esp_camera_fb_get();
+  esp_camera_fb_return(fb); // dispose the buffered image
+  fb = NULL; // reset to capture errors
+  fb = esp_camera_fb_get();
   
   if(!fb) {
     Serial.println("Camera capture failed");
     delay(1000);
     ESP.restart();
   }
-
 
   // Path where new picture will be saved in SD Card
   String path = getPictureFilename();
@@ -662,13 +973,19 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector
 
   Serial.begin(115200);
+  delay(1000);
   Serial.println("Version: " + firmwareVer);
   delay(2000);
 
-#if USECONFIG
-  if (FILESYS.exists("/config.ini")) {
-    File iniFile = FILESYS.open("/config.ini", "r");
+  // Initialize MicroSD
+  Serial.print("Initializing the MicroSD card module... ");
+  initMicroSDCard();
+
+  if (SD_MMC.exists("/config.ini")) {
+    //Serial.println("ini exists");
+    File iniFile = SD_MMC.open("/config.ini", "r");
     if (iniFile) {
+      //Serial.println("--- ini found, loading ---");
       String iniData;
       while (iniFile.available()) {
         char chnk = iniFile.read();
@@ -676,42 +993,51 @@ void setup() {
       }
       iniFile.close();
 
+      //Serial.println("processing ini entries:");
+
       if (instr(iniData, "AP_SSID=")) {
         AP_SSID = split(iniData, "AP_SSID=", "\r\n");
         AP_SSID.trim();
       }
+      //Serial.println("AP_SSID = " + AP_SSID);
 
       if (instr(iniData, "AP_PASS=")) {
         AP_PASS = split(iniData, "AP_PASS=", "\r\n");
         AP_PASS.trim();
       }
+      //Serial.println("AP_PASS = " + AP_PASS);
 
       if (instr(iniData, "WEBSERVER_IP=")) {
         String strwIp = split(iniData, "WEBSERVER_IP=", "\r\n");
         strwIp.trim();
         Server_IP.fromString(strwIp);
       }
+      //Serial.println("WEBSERVER_IP = " + String(Server_IP));
 
       if (instr(iniData, "SUBNET_MASK=")) {
         String strsIp = split(iniData, "SUBNET_MASK=", "\r\n");
         strsIp.trim();
         Subnet_Mask.fromString(strsIp);
       }
+      //Serial.println("SUBNET_MASK = " + String(Subnet_Mask));
 
       if (instr(iniData, "WIFI_SSID=")) {
         WIFI_SSID = split(iniData, "WIFI_SSID=", "\r\n");
         WIFI_SSID.trim();
       }
+      //Serial.println("WIFI_SSID = " + WIFI_SSID);
 
       if (instr(iniData, "WIFI_PASS=")) {
         WIFI_PASS = split(iniData, "WIFI_PASS=", "\r\n");
         WIFI_PASS.trim();
       }
+      //Serial.println("WIFI_PASS = " + WIFI_PASS);
 
       if (instr(iniData, "WIFI_HOST=")) {
         WIFI_HOSTNAME = split(iniData, "WIFI_HOST=", "\r\n");
         WIFI_HOSTNAME.trim();
       }
+      //Serial.println("WIFI_HOSTNAME = " + WIFI_HOSTNAME);
 
       if (instr(iniData, "USEAP=")) {
         String strua = split(iniData, "USEAP=", "\r\n");
@@ -722,6 +1048,7 @@ void setup() {
           startAP = false;
         }
       }
+      //Serial.println("USEAP = " + String(startAP));
 
       if (instr(iniData, "CONWIFI=")) {
         String strcw = split(iniData, "CONWIFI=", "\r\n");
@@ -732,11 +1059,196 @@ void setup() {
           connectWifi = false;
         }
       }
+      //Serial.println("CONNWIFI = " + String(connectWifi));
+
+      if (instr(iniData, "MYTIMEZONE=")) {
+        String strtz = split(iniData, "MYTIMEZONE=", "\r\n");
+        strtz.trim();
+        myTimezone = strtz;
+      }
+      //Serial.println("MYTIMEZONE = " + myTimezone);
+
+      if (instr(iniData, "BRIGHTNESS=")) {
+        String strbrt = split(iniData, "BRIGHTNESS=", "\r\n");
+        strbrt.trim();
+        brightness = strbrt.toInt();
+      }
+      //Serial.println("BRIGHTNESS = " + String(brightness));
+      
+      if (instr(iniData, "CONTRAST=")) {
+        String strcon = split(iniData, "CONTRAST=", "\r\n");
+        strcon.trim();
+        contrast = strcon.toInt();
+      }
+      //Serial.println("CONTRAST = " + String(contrast));
+
+      if (instr(iniData, "SATURATION=")) {
+        String strsat = split(iniData, "SATURATION=", "\r\n");
+        strsat.trim();
+        saturation = strsat.toInt();
+        
+      }
+      //Serial.println("SATURATION = " + String(saturation));
+
+      if (instr(iniData, "SHARPNESS=")) {
+        String strsha = split(iniData, "SHARPNESS=", "\r\n");
+        strsha.trim();
+        sharpness = strsha.toInt();
+      }
+      //Serial.println("SHARPNESS = " + String(sharpness));
+
+      if (instr(iniData, "DENOISE=")) {
+        String strden = split(iniData, "DENOISE=", "\r\n");
+        strden.trim();
+        denoise = strden.toInt();
+      }
+      //Serial.println("DENOISE = " + String(denoise));
+
+      if (instr(iniData, "SPECIAL_EFFECT=")) {
+        String strsfx = split(iniData, "SPECIAL_EFFECT=", "\r\n");
+        strsfx.trim();
+        special_effect = strsfx.toInt();        
+      }
+      //Serial.println("SPECIAL_EFFECT = " + String(special_effect));
+
+      if (instr(iniData, "WHITEBAL=")) {
+        String strwhi = split(iniData, "WHITEBAL=", "\r\n");
+        strwhi.trim();
+        whitebal = strwhi.toInt();
+      }
+      //Serial.println("WHITEBAL = " + String(whitebal));
+
+      if (instr(iniData, "AWB_GAIN=")) {
+        String strawb = split(iniData, "AWB_GAIN=", "\r\n");
+        strawb.trim();
+        awb_gain = strawb.toInt();
+      }
+      //Serial.println("AWB_GAIN = " + String(awb_gain));
+
+      if (instr(iniData, "WB_MODE=")) {
+        String strwbm = split(iniData, "WB_MODE=", "\r\n");
+        strwbm.trim();
+        wb_mode = strwbm.toInt();        
+      }
+      //Serial.println("WB_MODE = " + String(wb_mode));
+
+      if (instr(iniData, "EXPOSURE_CTRL=")) {
+        String strexp = split(iniData, "EXPOSURE_CTRL=", "\r\n");
+        strexp.trim();
+        exposure_ctrl = strexp.toInt();
+      }
+      //Serial.println("EXPOSURE_CTRL = " + String(exposure_ctrl));
+
+      if (instr(iniData, "AEC2=")) {
+        String straec2 = split(iniData, "AEC2=", "\r\n");
+        straec2.trim();
+        aec2 = straec2.toInt();
+      }
+      //Serial.println("AEC2 = " + String(aec2));
+
+      if (instr(iniData, "AE_LEVEL=")) {
+        String strael = split(iniData, "AE_LEVEL=", "\r\n");
+        strael.trim();
+        ae_level = strael.toInt();
+      }
+      //Serial.println("AE_LEVEL = " + String(ae_level));
+
+      if (instr(iniData, "AEC_VALUE=")) {
+        String straecv = split(iniData, "AEC_VALUE=", "\r\n");
+        straecv.trim();
+        aec_value = straecv.toInt();
+      }
+      //Serial.println("AEC_VALUE = " + String(aec_value));
+
+      if (instr(iniData, "GAIN_CTRL=")) {
+        String strgai = split(iniData, "GAIN_CTRL=", "\r\n");
+        strgai.trim();
+        gain_ctrl = strgai.toInt();
+      }
+      //Serial.println("GAIN_CTRL = " + String(gain_ctrl));
+
+      if (instr(iniData, "AGC_GAIN=")) {
+        String stragcg = split(iniData, "AGC_GAIN=", "\r\n");
+        stragcg.trim();
+        agc_gain = stragcg.toInt();
+      }
+      //Serial.println("AGC_GAIN = " + String(agc_gain));
+
+      if (instr(iniData, "GAINCEILING")) {
+        String strgac= split(iniData, "GAINCEILING=", "\r\n");
+        strgac.trim();
+        gainceiling = strgac.toInt();
+      }
+      //Serial.println("GAINCEILING = " + String(gainceiling));
+
+      if (instr(iniData, "BPC=")) {
+        String strbpc = split(iniData, "BPC=", "\r\n");
+        strbpc.trim();
+        bpc = strbpc.toInt();
+      }
+      //Serial.println("BPC = " + String(bpc));
+
+      if (instr(iniData, "WPC=")) {
+        String strwpc = split(iniData, "WPC=", "\r\n");
+        strwpc.trim();
+        wpc = strwpc.toInt();
+      }
+      //Serial.println("WPC = " + String(wpc));
+
+      if (instr(iniData, "RAW_GMA=")) {
+        String strraw = split(iniData, "RAW_GMA=", "\r\n");
+        strraw.trim();
+        raw_gma = strraw.toInt();
+      }
+      //Serial.println("RAW_GMA = " + String(raw_gma));
+
+      if (instr(iniData, "LENC=")) {
+        String strlenc = split(iniData, "LENC=", "\r\n");
+        strlenc.trim();
+        lenc = strlenc.toInt();
+      }
+      //Serial.println("LENC = " + String(lenc));
+
+      if (instr(iniData, "HMIRROR=")) {
+        String strhmi = split(iniData, "HMIRROR=", "\r\n");
+        strhmi.trim();
+        hmirror = strhmi.toInt();
+      }
+      //Serial.println("HMIRROR = " + String(hmirror));
+
+      if (instr(iniData, "VFLIP=")) {
+        String strvfl = split(iniData, "VFLIP=", "\r\n");
+        strvfl.trim();
+        vflip = strvfl.toInt();
+      }
+      //Serial.println("VFLIP = " + String(vflip));
+
+      if (instr(iniData, "DCW=")) {
+        String strdcw = split(iniData, "DCW=", "\r\n");
+        strdcw.trim();
+        dcw = strdcw.toInt();
+      }
+      //Serial.println("DCW = " + String(dcw));
+
+      if (instr(iniData, "COLORBAR=")) {
+        String strcolo = split(iniData, "COLORBAR=", "\r\n");
+        strcolo.trim();
+        colorbar = strcolo.toInt();
+      }
+      //Serial.println("COLORBAR = " + String(colorbar));
+
+      if (instr(iniData, "PERIOD=")) {
+        String strper = split(iniData, "PERIOD=", "\r\n");
+        strper.trim();
+        period = strper.toInt();
+      }
+      //Serial.println("PERIOD = " + String(period));
     }
   } else {
+    //Serial.println("no ini found, start writeconfig");
     writeConfig();
   }
-#endif
+
 
   if (startAP) {
     //HWSerial.println("SSID: " + AP_SSID);
@@ -772,9 +1284,9 @@ void setup() {
       IPAddress LAN_IP = WiFi.localIP();
       if (LAN_IP) {
         Serial.println(" Wifi Connected");
-        Serial.println("WEB Server LAN IP: " + LAN_IP.toString());
-        Serial.println("WEB Server Port: " + String(WEB_PORT));
-        Serial.println("WEB Server Hostname: " + WIFI_HOSTNAME);
+        //Serial.println("WEB Server LAN IP: " + LAN_IP.toString());
+        //Serial.println("WEB Server Port: " + String(WEB_PORT));
+        //Serial.println("WEB Server Hostname: " + WIFI_HOSTNAME);
         String mdnsHost = WIFI_HOSTNAME;
         mdnsHost.replace(".local", "");
         MDNS.begin(mdnsHost.c_str());
@@ -783,7 +1295,7 @@ void setup() {
           dnsServer.setErrorReplyCode(DNSReplyCode::ServerFailure);
           dnsServer.start(53, "*", LAN_IP);
           Serial.println("DNS server started");
-          Serial.println("DNS Server IP: " + LAN_IP.toString());
+          //Serial.println("DNS Server IP: " + LAN_IP.toString());
         }
       }
     }
@@ -797,20 +1309,15 @@ void setup() {
   Serial.print("Initializing the camera module...");
   configInitCamera();
   Serial.println("Ok!");
-  // Initialize MicroSD
-  Serial.print("Initializing the MicroSD card module... ");
-  initMicroSDCard();
-
+  
   // web server reacts
   server.on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Microsoft Connect Test");
   });
 
-#if USECONFIG
   server.on("/config.ini", HTTP_ANY, [](AsyncWebServerRequest *request) {
     request->send(404);
   });
-#endif
 
   server.on("/upload.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", upload_gz, sizeof(upload_gz));
@@ -832,7 +1339,6 @@ void setup() {
     handleDelete(request);
   });
 
-#if USECONFIG
   server.on("/config.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     handleConfigHtml(request);
   });
@@ -840,7 +1346,6 @@ void setup() {
   server.on("/config.html", HTTP_POST, [](AsyncWebServerRequest *request) {
     handleConfig(request);
   });
-#endif
 
   server.on("/admin.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", admin_gz, sizeof(admin_gz));
@@ -877,7 +1382,7 @@ void setup() {
     handleDlFiles(request);
   });
 
-  server.serveStatic("/", FILESYS, "/").setDefaultFile("index.html");
+  server.serveStatic("/", SD_MMC, "/").setDefaultFile("index.html");
 
   server.onNotFound([](AsyncWebServerRequest *request) {
     //Serial.println(request->url());
@@ -915,13 +1420,11 @@ void loop() {
   if (isFormating) {
   Serial.print("Formatting Storage");
   isFormating = false;
-  FILESYS.end();
-  //FILESYS.format();
-  FILESYS.begin();
+  SD_MMC.end();
+  //SD_MMC.format();
+  SD_MMC.begin();
   delay(1000);
-#if USECONFIG
   writeConfig();
-#endif
   }
 
   // take the first pic after boot

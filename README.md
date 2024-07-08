@@ -55,3 +55,13 @@ In Arduino IDE, make the following settings in the `Tools` menu:
 - `Flash Mode`: QIO
 - `Partition Scheme`: Huge APP (3MB No OTA/1MB SPIFFS)
 
+# Internal pages
+- **admin.html** - the main landing page for administration.
+- **index.html** - if no index.html is found the server will generate a simple empty index.
+- **info.html** - provides information about the esp board.
+- **upload.html** - used to upload files to the esp board for the webserver.
+- **update.html** - used to update the firmware on the esp board (fwupdate.bin).
+- **fileman.html** - used to view / download / delete files on the internal storage of the esp board.
+- **config.html** - used to configure wifi ap and ip settings.
+- **format.html** - used to format the internal storage of the esp board.
+- **reboot.html** - used to reboot the esp board.
