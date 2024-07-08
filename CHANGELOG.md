@@ -1,3 +1,7 @@
+# 1.40
+- fix save/load/reset cam config
+- remove camconfig.ini when rebooting due to cam failure
+
 # 1.30
 - separate Cam and ESP config
 - update Cam config without reboot

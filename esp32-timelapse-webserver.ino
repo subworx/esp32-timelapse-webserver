@@ -1,26 +1,16 @@
 /*
 
-ESP32 CAM control - timelapse with simple web interface
+ESP32 CAM control - timelapse with simple web interface @ https://github.com/subworx/esp32-timelapse-webserver/
 crapped together from:
  - https://www.instructables.com/ESP32-CAM-Take-Photo-and-Save-to-MicroSD-Card-With/
  - https://github.com/stooged/ESP32-Server-900u/
 
 TODOs:
-- fix save/reset cam config - form variables?
 - cam config preview
 - webcam stream?
 
-DONE:
-+ copy jailbreak esp stuff - file management, info
-+ take picture every 3 minutes
-+ fixed config read/write for server + cam
-+ separated camera/system config
-+ update camera config without reboot
-
-NOTES:
-To edit the html stuff (pages.h), copy the numbers and paste into https://gchq.github.io/CyberChef/ using
-From Decimal (Comma) -> Gunzip to create HTML, then Gzip (with filename) -> To Decimal (comma), then paste
-back into pages.h
+Further instructions -> README.md
+Changelog -> CHANGELOG.md
 
 */
 
@@ -51,13 +41,13 @@ IPAddress Subnet_Mask(255, 255, 255, 0);
 boolean connectWifi = true;
 String WIFI_SSID = "xxxxx";
 String WIFI_PASS = "xxxxx";
-String WIFI_HOSTNAME = "esp32-cam";
+String WIFI_HOSTNAME = "esp32-cam2";
 
 //server port
 int WEB_PORT = 80;
 
 // Displayed firmware version
-String firmwareVer = "1.30";
+String firmwareVer = "1.40";
 
 // REPLACE WITH YOUR TIMEZONE STRING: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 String myTimezone ="CET-1CEST,M3.5.0,M10.5.0/3";
@@ -387,57 +377,89 @@ void handleCamConfig(AsyncWebServerRequest *request) {
   request->hasParam("colorbar", true) && request->hasParam("period", true)) {
     //Serial.println("-- processing config --");
     String tmpMytimezone = "CET-1CEST,M3.5.0,M10.5.0/3";
-    if (request->hasParam("mytimezone", true)) { tmpMytimezone = request->getParam("mytimezone", true)->value(); myTimezone = tmpMytimezone;}
     String tmpBrightness = "0";
-    if (request->hasParam("brightness", true)) { tmpBrightness = request->getParam("brightness", true)->value(); brightness = tmpBrightness.toInt();}
     String tmpContrast = "0";
-    if (request->hasParam("contrast", true)) { tmpContrast = request->getParam("contrast", true)->value(); contrast = tmpContrast.toInt();}
     String tmpSaturation = "0";
-    if (request->hasParam("saturation", true)) { tmpSaturation = request->getParam("saturation", true)->value(); saturation = tmpSaturation.toInt();}
     String tmpSharpness = "0";
-    if (request->hasParam("sharpness", true)) { tmpSharpness = request->getParam("sharpness", true)->value(); sharpness = tmpSharpness.toInt();}
     String tmpDenoise = "1";
-    if (request->hasParam("denoise", true)) { tmpDenoise = request->getParam("denoise", true)->value(); denoise = tmpDenoise.toInt();}
     String tmpSpecial_effect = "0";
-    if (request->hasParam("special_effect", true)) { tmpSpecial_effect = request->getParam("special_effect", true)->value(); special_effect = tmpSpecial_effect.toInt();}
     String tmpWhitebal = "1";
-    if (request->hasParam("whitebal", true)) { tmpWhitebal = request->getParam("whitebal", true)->value(); whitebal = tmpWhitebal.toInt();}
     String tmpAwb_gain = "1";
-    if (request->hasParam("awb_gain", true)) { tmpAwb_gain = request->getParam("awb_gain", true)->value(); awb_gain = tmpAwb_gain.toInt();}
     String tmpWb_mode = "0";
-    if (request->hasParam("wb_mode", true)) { tmpWb_mode = request->getParam("wb_mode", true)->value(); wb_mode = tmpWb_mode.toInt();}
     String tmpExposure_ctrl = "1";
-    if (request->hasParam("exposure_ctrl", true)) { tmpExposure_ctrl = request->getParam("exposure_ctrl", true)->value(); exposure_ctrl = tmpExposure_ctrl.toInt();}
     String tmpAec2 = "0";
-    if (request->hasParam("aec2", true)) { tmpAec2 = request->getParam("aec2", true)->value(); aec2 = tmpAec2.toInt();}
-     String tmpAe_level = "0";
-    if (request->hasParam("ae_level", true)) { tmpAe_level = request->getParam("ae_level", true)->value(); ae_level = tmpAe_level.toInt();}
+    String tmpAe_level = "0";
     String tmpAec_value = "300";
-    if (request->hasParam("aec_value", true)) { tmpAec_value = request->getParam("aec_value", true)->value(); aec_value = tmpAec_value.toInt();}
     String tmpGain_ctrl = "1";
-    if (request->hasParam("gain_ctrl", true)) { tmpGain_ctrl = request->getParam("gain_ctrl", true)->value(); gain_ctrl = tmpGain_ctrl.toInt();}
     String tmpAgc_gain = "0";
-    if (request->hasParam("agc_gain", true)) { tmpAgc_gain = request->getParam("agc_gain", true)->value(); agc_gain = tmpAgc_gain.toInt();}
     String tmpGainceiling = "0";
-    if (request->hasParam("gainceiling", true)) { tmpGainceiling = request->getParam("gainceiling", true)->value(); gainceiling = tmpGainceiling.toInt();}
     String tmpBpc = "0";
-    if (request->hasParam("bpc", true)) { tmpBpc = request->getParam("bpc", true)->value(); bpc = tmpBpc.toInt();}
     String tmpWpc = "1";
-    if (request->hasParam("wpc", true)) { tmpWpc = request->getParam("wpc", true)->value(); wpc = tmpWpc.toInt();}
     String tmpRaw_gma = "1";
-    if (request->hasParam("raw_gma", true)) { tmpRaw_gma = request->getParam("raw_gma", true)->value(); raw_gma = tmpRaw_gma.toInt();}
     String tmpLenc = "1";
-    if (request->hasParam("lenc", true)) { tmpLenc = request->getParam("lenc", true)->value(); lenc = tmpLenc.toInt();}
     String tmpHmirror = "0";
-    if (request->hasParam("hmirror", true)) { tmpHmirror = request->getParam("hmirror", true)->value(); hmirror = tmpHmirror.toInt();}
     String tmpVflip = "0";
-    if (request->hasParam("vflip", true)) { tmpVflip = request->getParam("vflip", true)->value(); vflip = tmpVflip.toInt();}
     String tmpDcw = "1";
-    if (request->hasParam("dcw", true)) { tmpDcw = request->getParam("dcw", true)->value(); dcw = tmpDcw.toInt();}
     String tmpColorbar = "0";
-    if (request->hasParam("colorbar", true)) { tmpColorbar = request->getParam("colorbar", true)->value(); colorbar = tmpColorbar.toInt();}
     String tmpPeriod = "180000";
-    if (request->hasParam("period", true)) { tmpPeriod = request->getParam("period", true)->value(); period = tmpPeriod.toInt();}
+    if (request->hasParam("resetdefaults", true)) {
+      Serial.println("resetdefaults exists"); 
+    } else {
+      Serial.println("getting new settings");
+      if (request->hasParam("mytimezone", true)) { tmpMytimezone = request->getParam("mytimezone", true)->value(); }
+      if (request->hasParam("brightness", true)) { tmpBrightness = request->getParam("brightness", true)->value(); }
+      if (request->hasParam("contrast", true)) { tmpContrast = request->getParam("contrast", true)->value(); }
+      if (request->hasParam("saturation", true)) { tmpSaturation = request->getParam("saturation", true)->value(); }
+      if (request->hasParam("sharpness", true)) { tmpSharpness = request->getParam("sharpness", true)->value(); }
+      if (request->hasParam("denoise", true)) { tmpDenoise = request->getParam("denoise", true)->value(); }
+      if (request->hasParam("special_effect", true)) { tmpSpecial_effect = request->getParam("special_effect", true)->value(); }
+      if (request->hasParam("whitebal", true)) { tmpWhitebal = request->getParam("whitebal", true)->value(); }
+      if (request->hasParam("awb_gain", true)) { tmpAwb_gain = request->getParam("awb_gain", true)->value(); }
+      if (request->hasParam("wb_mode", true)) { tmpWb_mode = request->getParam("wb_mode", true)->value(); }
+      if (request->hasParam("exposure_ctrl", true)) { tmpExposure_ctrl = request->getParam("exposure_ctrl", true)->value(); }
+      if (request->hasParam("aec2", true)) { tmpAec2 = request->getParam("aec2", true)->value(); }
+      if (request->hasParam("ae_level", true)) { tmpAe_level = request->getParam("ae_level", true)->value(); }
+      if (request->hasParam("aec_value", true)) { tmpAec_value = request->getParam("aec_value", true)->value(); }
+      if (request->hasParam("gain_ctrl", true)) { tmpGain_ctrl = request->getParam("gain_ctrl", true)->value(); }
+      if (request->hasParam("agc_gain", true)) { tmpAgc_gain = request->getParam("agc_gain", true)->value(); }
+      if (request->hasParam("gainceiling", true)) { tmpGainceiling = request->getParam("gainceiling", true)->value(); }
+      if (request->hasParam("bpc", true)) { tmpBpc = request->getParam("bpc", true)->value(); }
+      if (request->hasParam("wpc", true)) { tmpWpc = request->getParam("wpc", true)->value(); }
+      if (request->hasParam("raw_gma", true)) { tmpRaw_gma = request->getParam("raw_gma", true)->value(); }
+      if (request->hasParam("lenc", true)) { tmpLenc = request->getParam("lenc", true)->value(); }
+      if (request->hasParam("hmirror", true)) { tmpHmirror = request->getParam("hmirror", true)->value(); }
+      if (request->hasParam("vflip", true)) { tmpVflip = request->getParam("vflip", true)->value(); }
+      if (request->hasParam("dcw", true)) { tmpDcw = request->getParam("dcw", true)->value(); }
+      if (request->hasParam("colorbar", true)) { tmpColorbar = request->getParam("colorbar", true)->value(); }
+      if (request->hasParam("period", true)) { tmpPeriod = request->getParam("period", true)->value(); }
+    }
+    myTimezone = tmpMytimezone;
+    brightness = tmpBrightness.toInt();
+    contrast = tmpContrast.toInt();
+    saturation = tmpSaturation.toInt();
+    sharpness = tmpSharpness.toInt();
+    denoise = tmpDenoise.toInt();
+    special_effect = tmpSpecial_effect.toInt();
+    whitebal = tmpWhitebal.toInt();
+    awb_gain = tmpAwb_gain.toInt();
+    wb_mode = tmpWb_mode.toInt();
+    exposure_ctrl = tmpExposure_ctrl.toInt();
+    aec2 = tmpAec2.toInt();
+    ae_level = tmpAe_level.toInt();
+    aec_value = tmpAec_value.toInt();
+    gain_ctrl = tmpGain_ctrl.toInt();
+    agc_gain = tmpAgc_gain.toInt();
+    gainceiling = tmpGainceiling.toInt();
+    bpc = tmpBpc.toInt();
+    wpc = tmpWpc.toInt();
+    raw_gma = tmpRaw_gma.toInt();
+    lenc = tmpLenc.toInt();
+    hmirror = tmpHmirror.toInt();
+    vflip = tmpVflip.toInt();
+    dcw = tmpDcw.toInt();
+    colorbar = tmpColorbar.toInt();
+    period = tmpPeriod.toInt();
+
     String iniContent = "MYTIMEZONE=" + tmpMytimezone;
     iniContent += "\r\nBRIGHTNESS=" + tmpBrightness;
     iniContent += "\r\nCONTRAST=" + tmpContrast;
@@ -634,6 +656,7 @@ void handleCamConfigHtml(AsyncWebServerRequest *request) {
   htmStr += "<tr><td>vflip (0 / 1, Default 0):</td><td><input name=\"vflip\" value=\"" + String(vflip) + "\"></td></tr>";
   htmStr += "<tr><td>dcw (0 / 1, Default 1):</td><td><input name=\"dcw\" value=\"" + String(dcw) + "\"></td></tr>";
   htmStr += "<tr><td>colorbar (0 / 1, Default 0):</td><td><input name=\"colorbar\" value=\"" + String(colorbar) + "\"></td></tr>";
+  htmStr += "<tr><td>Reset defaults</td><td><input type=\"checkbox\" name=\"resetdefaults\" value=\"1\"></td></tr>";
   htmStr += "</table><br><input name=\"savecfg\" id=\"savecfg\" type=\"submit\" value=\"Save Config\"></center></form></body></html>";
   request->send(200, "text/html", htmStr);
 }
@@ -721,6 +744,7 @@ void handleInfo(AsyncWebServerRequest *request) {
     output += "Server Hostname: " + WIFI_HOSTNAME + "<br><hr>";
   }
   output += "##### Camera Parameters #####<br><br>";
+  output += "<a href=\"https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv\" target=\"_blank\">My Timezone</a>: " + myTimezone + "<br>";
   output += "Picture interval (ms): " + String(period) + "<br>";
   output += "Brightness (-2 to 2): " + String(brightness) + "<br>";
   output += "Contrast (-2 to 2): " + String(contrast) + "<br>";
@@ -1042,6 +1066,7 @@ void takeSavePhoto(){
   
   if(!fb) {
     Serial.println("Camera capture failed");
+    SD_MMC.remove("/camconfig.ini");
     delay(1000);
     ESP.restart();
   }
@@ -1157,189 +1182,6 @@ void setup() {
       }
       //Serial.println("CONNWIFI = " + String(connectWifi));
 
-      /*if (instr(iniData, "MYTIMEZONE=")) {
-        String strtz = split(iniData, "MYTIMEZONE=", "\r\n");
-        strtz.trim();
-        myTimezone = strtz;
-      }
-      //Serial.println("MYTIMEZONE = " + myTimezone);
-
-      if (instr(iniData, "BRIGHTNESS=")) {
-        String strbrt = split(iniData, "BRIGHTNESS=", "\r\n");
-        strbrt.trim();
-        brightness = strbrt.toInt();
-      }
-      //Serial.println("BRIGHTNESS = " + String(brightness));
-      
-      if (instr(iniData, "CONTRAST=")) {
-        String strcon = split(iniData, "CONTRAST=", "\r\n");
-        strcon.trim();
-        contrast = strcon.toInt();
-      }
-      //Serial.println("CONTRAST = " + String(contrast));
-
-      if (instr(iniData, "SATURATION=")) {
-        String strsat = split(iniData, "SATURATION=", "\r\n");
-        strsat.trim();
-        saturation = strsat.toInt();
-        
-      }
-      //Serial.println("SATURATION = " + String(saturation));
-
-      if (instr(iniData, "SHARPNESS=")) {
-        String strsha = split(iniData, "SHARPNESS=", "\r\n");
-        strsha.trim();
-        sharpness = strsha.toInt();
-      }
-      //Serial.println("SHARPNESS = " + String(sharpness));
-
-      if (instr(iniData, "DENOISE=")) {
-        String strden = split(iniData, "DENOISE=", "\r\n");
-        strden.trim();
-        denoise = strden.toInt();
-      }
-      //Serial.println("DENOISE = " + String(denoise));
-
-      if (instr(iniData, "SPECIAL_EFFECT=")) {
-        String strsfx = split(iniData, "SPECIAL_EFFECT=", "\r\n");
-        strsfx.trim();
-        special_effect = strsfx.toInt();        
-      }
-      //Serial.println("SPECIAL_EFFECT = " + String(special_effect));
-
-      if (instr(iniData, "WHITEBAL=")) {
-        String strwhi = split(iniData, "WHITEBAL=", "\r\n");
-        strwhi.trim();
-        whitebal = strwhi.toInt();
-      }
-      //Serial.println("WHITEBAL = " + String(whitebal));
-
-      if (instr(iniData, "AWB_GAIN=")) {
-        String strawb = split(iniData, "AWB_GAIN=", "\r\n");
-        strawb.trim();
-        awb_gain = strawb.toInt();
-      }
-      //Serial.println("AWB_GAIN = " + String(awb_gain));
-
-      if (instr(iniData, "WB_MODE=")) {
-        String strwbm = split(iniData, "WB_MODE=", "\r\n");
-        strwbm.trim();
-        wb_mode = strwbm.toInt();        
-      }
-      //Serial.println("WB_MODE = " + String(wb_mode));
-
-      if (instr(iniData, "EXPOSURE_CTRL=")) {
-        String strexp = split(iniData, "EXPOSURE_CTRL=", "\r\n");
-        strexp.trim();
-        exposure_ctrl = strexp.toInt();
-      }
-      //Serial.println("EXPOSURE_CTRL = " + String(exposure_ctrl));
-
-      if (instr(iniData, "AEC2=")) {
-        String straec2 = split(iniData, "AEC2=", "\r\n");
-        straec2.trim();
-        aec2 = straec2.toInt();
-      }
-      //Serial.println("AEC2 = " + String(aec2));
-
-      if (instr(iniData, "AE_LEVEL=")) {
-        String strael = split(iniData, "AE_LEVEL=", "\r\n");
-        strael.trim();
-        ae_level = strael.toInt();
-      }
-      //Serial.println("AE_LEVEL = " + String(ae_level));
-
-      if (instr(iniData, "AEC_VALUE=")) {
-        String straecv = split(iniData, "AEC_VALUE=", "\r\n");
-        straecv.trim();
-        aec_value = straecv.toInt();
-      }
-      //Serial.println("AEC_VALUE = " + String(aec_value));
-
-      if (instr(iniData, "GAIN_CTRL=")) {
-        String strgai = split(iniData, "GAIN_CTRL=", "\r\n");
-        strgai.trim();
-        gain_ctrl = strgai.toInt();
-      }
-      //Serial.println("GAIN_CTRL = " + String(gain_ctrl));
-
-      if (instr(iniData, "AGC_GAIN=")) {
-        String stragcg = split(iniData, "AGC_GAIN=", "\r\n");
-        stragcg.trim();
-        agc_gain = stragcg.toInt();
-      }
-      //Serial.println("AGC_GAIN = " + String(agc_gain));
-
-      if (instr(iniData, "GAINCEILING")) {
-        String strgac= split(iniData, "GAINCEILING=", "\r\n");
-        strgac.trim();
-        gainceiling = strgac.toInt();
-      }
-      //Serial.println("GAINCEILING = " + String(gainceiling));
-
-      if (instr(iniData, "BPC=")) {
-        String strbpc = split(iniData, "BPC=", "\r\n");
-        strbpc.trim();
-        bpc = strbpc.toInt();
-      }
-      //Serial.println("BPC = " + String(bpc));
-
-      if (instr(iniData, "WPC=")) {
-        String strwpc = split(iniData, "WPC=", "\r\n");
-        strwpc.trim();
-        wpc = strwpc.toInt();
-      }
-      //Serial.println("WPC = " + String(wpc));
-
-      if (instr(iniData, "RAW_GMA=")) {
-        String strraw = split(iniData, "RAW_GMA=", "\r\n");
-        strraw.trim();
-        raw_gma = strraw.toInt();
-      }
-      //Serial.println("RAW_GMA = " + String(raw_gma));
-
-      if (instr(iniData, "LENC=")) {
-        String strlenc = split(iniData, "LENC=", "\r\n");
-        strlenc.trim();
-        lenc = strlenc.toInt();
-      }
-      //Serial.println("LENC = " + String(lenc));
-
-      if (instr(iniData, "HMIRROR=")) {
-        String strhmi = split(iniData, "HMIRROR=", "\r\n");
-        strhmi.trim();
-        hmirror = strhmi.toInt();
-      }
-      //Serial.println("HMIRROR = " + String(hmirror));
-
-      if (instr(iniData, "VFLIP=")) {
-        String strvfl = split(iniData, "VFLIP=", "\r\n");
-        strvfl.trim();
-        vflip = strvfl.toInt();
-      }
-      //Serial.println("VFLIP = " + String(vflip));
-
-      if (instr(iniData, "DCW=")) {
-        String strdcw = split(iniData, "DCW=", "\r\n");
-        strdcw.trim();
-        dcw = strdcw.toInt();
-      }
-      //Serial.println("DCW = " + String(dcw));
-
-      if (instr(iniData, "COLORBAR=")) {
-        String strcolo = split(iniData, "COLORBAR=", "\r\n");
-        strcolo.trim();
-        colorbar = strcolo.toInt();
-      }
-      //Serial.println("COLORBAR = " + String(colorbar));
-
-      if (instr(iniData, "PERIOD=")) {
-        String strper = split(iniData, "PERIOD=", "\r\n");
-        strper.trim();
-        period = strper.toInt();
-      }
-      //Serial.println("PERIOD = " + String(period));
-      */
     }
   } else {
     //Serial.println("no config.ini found, start writeconfig");
