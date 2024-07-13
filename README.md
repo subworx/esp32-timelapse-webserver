@@ -40,9 +40,12 @@ Change the values near the top of the file to match your requirements. All of th
 
 ## Cam settings
 Since I am not that great a coder, I currently have a hard time including something like a live preview. 
+
 My recommendation: In Arduino IDE, open `File -> Examples -> ESP32 -> Camera -> CameraWebServer`. Flash that to your ESP32-Cam module.
+
 Play around with the settings until you like the picture output, and write them down.
-Simply either edit esp32-timelapse-webserver.ino and insert the values there, or change them through the config UI.
+
+Now either edit `esp32-timelapse-webserver.ino` and insert your values near the top, or change them through the config UI.
 
 ## Other settings 
 - `myTimezone` - Check https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv, find your region and paste the appropriate value.
@@ -82,7 +85,7 @@ In Arduino IDE, make the following settings in the `Tools` menu:
 - **index.html** - if no index.html is found the server will generate a simple empty index.
 - **info.html** - provides information about the esp board.
 - **upload.html** - used to upload files to the esp board for the webserver.
-- **fileman.html** - used to view / download / delete files on the internal storage of the esp board.
+- **fileman.html** - used to view / download / delete files on the installed MicroSD.
 - **config.html** - used to configure WiFi settings.
 - **camconfig.html** - used to configure camera settings.
 - **format.html** - used to format the internal storage of the esp board.
@@ -95,7 +98,3 @@ If you want to edit some of the internal pages, they can be found in `Pages.h` a
 - Edit what you want.
 - Copy the new HTML into the top box, then use `Gzip (with filename) -> To Decimal (comma)` to calculate numbers again.
 - Paste these numbers back into the correct block in Pages.h.
-
-# Known issues
-- file manager crashes when more than ~150 files on MicroSD
-- first picture is green-ish
