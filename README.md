@@ -3,11 +3,26 @@ ESP32-Cam with configurable time lapse option and web server.
 
 Supports `AI Thinker` boards with `OV2640` cameras.
 
+To support other boards, you can take the pinouts from Arduino IDE sample projects or similar.
+
 This project:
 - initializes the OV2640 camera of your ESP32-Cam module
 - connects to WiFi to receive the current date and time
 - takes a picture every X seconds with the current time as filename
 - saves the picture to SD
+- offers the last taken picture under `/latest.jpg`
+- contains a small file manager 
+
+# Known issues / TODO:
+- First picture after boot has a greenish tint, everything from the second picture is fine.
+  - Take first picture, delete, wait a few seconds, take second picture, then continue with regular period?
+- File manager crashes when displaying >~150 files. 
+  - Maybe too big output buffer?
+- Add more cam options (size, quality, clock)
+  - Cam config preview?
+- Or a live stream
+- automatic picture upload?
+  - FTP, I don't yet care about cloud/SMB
 
 # Settings:
 Change the values near the top of the file to match your requirements. All of these settings can be changed through the GUI later:
@@ -22,6 +37,12 @@ Change the values near the top of the file to match your requirements. All of th
 - `connectWifi` - Connect to existing wireless network
 -  `WIFI_SSID`, `WIFI_PASS` - Replace with your wireless network name and password
 -  `WIFI_HOSTNAME` - How the ESP32 will be named on the network
+
+## Cam settings
+Since I am not that great a coder, I currently have a hard time including something like a live preview. 
+My recommendation: In Arduino IDE, open `File -> Examples -> ESP32 -> Camera -> CameraWebServer`. Flash that to your ESP32-Cam module.
+Play around with the settings until you like the picture output, and write them down.
+Simply either edit esp32-timelapse-webserver.ino and insert the values there, or change them through the config UI.
 
 ## Other settings 
 - `myTimezone` - Check https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv, find your region and paste the appropriate value.
@@ -61,12 +82,12 @@ In Arduino IDE, make the following settings in the `Tools` menu:
 - **index.html** - if no index.html is found the server will generate a simple empty index.
 - **info.html** - provides information about the esp board.
 - **upload.html** - used to upload files to the esp board for the webserver.
-- **update.html** - used to update the firmware on the esp board (fwupdate.bin).
 - **fileman.html** - used to view / download / delete files on the internal storage of the esp board.
 - **config.html** - used to configure WiFi settings.
 - **camconfig.html** - used to configure camera settings.
 - **format.html** - used to format the internal storage of the esp board.
 - **reboot.html** - used to reboot the esp board.
+- **latest.jpg** - show the last picture taken.
 
 If you want to edit some of the internal pages, they can be found in `Pages.h` and are gzipped:
 - Copy the numbers from any PROGMEM block and paste them into  https://gchq.github.io/CyberChef/.
@@ -74,3 +95,7 @@ If you want to edit some of the internal pages, they can be found in `Pages.h` a
 - Edit what you want.
 - Copy the new HTML into the top box, then use `Gzip (with filename) -> To Decimal (comma)` to calculate numbers again.
 - Paste these numbers back into the correct block in Pages.h.
+
+# Known issues
+- file manager crashes when more than ~150 files on MicroSD
+- first picture is green-ish
